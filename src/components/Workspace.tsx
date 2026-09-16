@@ -1,8 +1,21 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { MarkdownViewer } from './MarkdownViewer';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { SyncBadge, SyncStatus } from './SyncBadge';
+import { MarkdownViewer } from './MarkdownViewer';
 import { ImageLightbox } from './ImageLightbox';
-import { Columns, Eye, Edit3, ImagePlus } from 'lucide-react';
+import { PromptModal } from './PromptModal';
+import {
+  ImagePlus,
+  Columns,
+  Eye,
+  Edit3,
+  Bold,
+  Italic,
+  Heading,
+  Highlighter,
+  MessageSquarePlus,
+  Sigma,
+  Code
+} from 'lucide-react';
 
 export interface WorkspaceProps {
   noteTitle: string;
@@ -19,39 +32,57 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   currentFolderId,
   onSaveContent,
   onUploadImage,
-  resolveImageBlobUrl
+  resolveImageBlobUrl,
 }) => {
   const [content, setContent] = useState<string>(initialContent);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
-  const [viewMode, setViewMode] = useState<'split' | 'edit' | 'preview'>('split');
+  const [viewMode, setViewMode] = useState<'edit' | 'split' | 'preview'>('split');
   const [lightboxImage, setLightboxImage] = useState<{ url: string; alt?: string } | null>(null);
+  const [isCommentModalOpen, setIsCommentModalOpen] = useState<boolean>(false);
+  const [commentSelection, setCommentSelection] = useState<{ start: number; end: number; selected: string } | null>(null);
 
-  const contentRef = useRef<string>(initialContent);
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const contentRef = useRef<string>(content);
+  contentRef.current = content;
+
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pendingSaveRef = useRef<{ content: string; saveFn: (c: string) => Promise<void> } | null>(null);
 
-  const flushPendingSave = () => {
+  const flushPendingSave = useCallback(async () => {
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = null;
     }
     if (pendingSaveRef.current) {
-      pendingSaveRef.current.saveFn(pendingSaveRef.current.content).catch(() => {});
+      const { content: toSave, saveFn } = pendingSaveRef.current;
       pendingSaveRef.current = null;
+      try {
+        await Promise.resolve(saveFn(toSave));
+      } catch {
+        // save failed
+      }
     }
-  };
+  }, []);
 
   useEffect(() => {
     flushPendingSave();
     setContent(initialContent);
     contentRef.current = initialContent;
     setSyncStatus('synced');
-  }, [initialContent]);
+  }, [initialContent, flushPendingSave]);
 
   useEffect(() => {
     return () => {
-      flushPendingSave();
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+      if (pendingSaveRef.current) {
+        const { content: toSave, saveFn } = pendingSaveRef.current;
+        pendingSaveRef.current = null;
+        Promise.resolve(saveFn(toSave)).catch(() => {});
+      }
     };
   }, []);
 
@@ -60,11 +91,16 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     setContent(newContent);
     contentRef.current = newContent;
     setSyncStatus('saving');
-    pendingSaveRef.current = { content: newContent, saveFn: onSaveContent };
+
+    pendingSaveRef.current = {
+      content: newContent,
+      saveFn: onSaveContent,
+    };
 
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
+
     saveTimeoutRef.current = setTimeout(async () => {
       try {
         const toSave = pendingSaveRef.current?.content || newContent;
@@ -98,6 +134,58 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       setSyncStatus('error');
     }
   }, [onSaveContent]);
+
+  const wrapSelection = (before: string, after: string, defaultPlaceholder = '') => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart ?? 0;
+    const end = textarea.selectionEnd ?? 0;
+    const current = contentRef.current;
+    const selected = current.slice(start, end) || defaultPlaceholder;
+    const updated = current.slice(0, start) + before + selected + after + current.slice(end);
+
+    setContent(updated);
+    contentRef.current = updated;
+
+    handleChange({ target: { value: updated } } as React.ChangeEvent<HTMLTextAreaElement>);
+
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + before.length, start + before.length + selected.length);
+    }, 0);
+  };
+
+  const handleCommentClick = () => {
+    const textarea = textareaRef.current;
+    const start = textarea?.selectionStart ?? 0;
+    const end = textarea?.selectionEnd ?? 0;
+    const current = contentRef.current;
+    const selected = current.slice(start, end);
+    setCommentSelection({ start, end, selected });
+    setIsCommentModalOpen(true);
+  };
+
+  const handleConfirmComment = (commentText: string) => {
+    setIsCommentModalOpen(false);
+    const textarea = textareaRef.current;
+    if (!textarea || !commentSelection) return;
+
+    const { start, end, selected } = commentSelection;
+    const textToWrap = selected || 'commented text';
+    const before = `<mark data-comment="${commentText.replace(/"/g, '&quot;')}">`;
+    const after = `</mark>`;
+    const current = contentRef.current;
+    const updated = current.slice(0, start) + before + textToWrap + after + current.slice(end);
+
+    setContent(updated);
+    contentRef.current = updated;
+    handleChange({ target: { value: updated } } as React.ChangeEvent<HTMLTextAreaElement>);
+
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + before.length, start + before.length + textToWrap.length);
+    }, 0);
+  };
 
   const handlePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const items = e.clipboardData?.items;
@@ -166,30 +254,13 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       {/* Workspace Subheader */}
       <div className="h-12 border-b border-slate-800 px-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
-          <span className="font-semibold text-sm text-slate-200">{noteTitle}</span>
+          <span className="font-semibold text-sm text-slate-200 truncate max-w-xs">{noteTitle}</span>
           <SyncBadge
             status={syncStatus}
             onRetry={handleRetry}
           />
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 cursor-pointer transition-colors"
-            title="Upload figure"
-            aria-label="Upload figure"
-          >
-            <ImagePlus size={16} />
-          </button>
-          <input
-            type="file"
-            ref={fileInputRef}
-            className="hidden"
-            accept="image/*"
-            data-testid="file-upload-input"
-            onChange={handleFileInputChange}
-          />
           {/* View mode buttons */}
           <div className="flex bg-slate-800/80 rounded p-0.5 border border-slate-700">
             <button
@@ -224,21 +295,114 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       </div>
 
       {/* Editor / Preview Area */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
         {(viewMode === 'edit' || viewMode === 'split') && (
-          <div className={`h-full ${viewMode === 'split' ? 'w-1/2 border-r border-slate-800' : 'w-full'}`}>
+          <div className={`h-full flex flex-col ${viewMode === 'split' ? 'w-full md:w-1/2 border-r border-slate-800' : 'w-full'}`}>
+            {/* Formatting Toolbar */}
+            <div className="h-9 border-b border-slate-800/80 px-3 flex items-center gap-1 bg-slate-950/40 text-slate-400 shrink-0 overflow-x-auto">
+              <button
+                type="button"
+                onClick={() => wrapSelection('**', '**', 'bold text')}
+                title="Bold (Ctrl+B)"
+                aria-label="Bold"
+                className="p-1.5 hover:text-slate-200 hover:bg-slate-800 rounded transition-colors"
+              >
+                <Bold size={13} />
+              </button>
+              <button
+                type="button"
+                onClick={() => wrapSelection('*', '*', 'italic text')}
+                title="Italic (Ctrl+I)"
+                aria-label="Italic"
+                className="p-1.5 hover:text-slate-200 hover:bg-slate-800 rounded transition-colors"
+              >
+                <Italic size={13} />
+              </button>
+              <button
+                type="button"
+                onClick={() => wrapSelection('### ', '', 'Heading')}
+                title="Heading 3"
+                aria-label="Heading"
+                className="p-1.5 hover:text-slate-200 hover:bg-slate-800 rounded transition-colors"
+              >
+                <Heading size={13} />
+              </button>
+
+              <div className="w-px h-4 bg-slate-800 mx-1 shrink-0" />
+
+              <button
+                type="button"
+                onClick={() => wrapSelection('<mark>', '</mark>', 'highlighted text')}
+                title="Highlight text (<mark>)"
+                aria-label="Highlight"
+                className="p-1.5 hover:text-amber-300 hover:bg-amber-500/10 rounded transition-colors flex items-center gap-1 text-xs"
+              >
+                <Highlighter size={13} className="text-amber-400" />
+                <span className="hidden sm:inline">Highlight</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleCommentClick}
+                title="Add Comment to text"
+                aria-label="Add Comment"
+                className="p-1.5 hover:text-indigo-300 hover:bg-indigo-500/10 rounded transition-colors flex items-center gap-1 text-xs"
+              >
+                <MessageSquarePlus size={13} className="text-indigo-400" />
+                <span className="hidden sm:inline">Comment</span>
+              </button>
+
+              <div className="w-px h-4 bg-slate-800 mx-1 shrink-0" />
+
+              <button
+                type="button"
+                onClick={() => wrapSelection('$', '$', 'E=mc^2')}
+                title="LaTeX Math ($...$)"
+                aria-label="Math formula"
+                className="p-1.5 hover:text-slate-200 hover:bg-slate-800 rounded transition-colors"
+              >
+                <Sigma size={13} />
+              </button>
+              <button
+                type="button"
+                onClick={() => wrapSelection('```\n', '\n```', 'code')}
+                title="Code Block"
+                aria-label="Code Block"
+                className="p-1.5 hover:text-slate-200 hover:bg-slate-800 rounded transition-colors"
+              >
+                <Code size={13} />
+              </button>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                title="Upload figure"
+                aria-label="Upload figure"
+                className="p-1.5 hover:text-slate-200 hover:bg-slate-800 rounded transition-colors"
+              >
+                <ImagePlus size={13} />
+              </button>
+              <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                accept="image/*"
+                data-testid="file-upload-input"
+                onChange={handleFileInputChange}
+              />
+            </div>
+
             <textarea
+              ref={textareaRef}
               value={content}
               onChange={handleChange}
               onPaste={handlePaste}
               placeholder="Write your markdown note here..."
               aria-label="Markdown editor"
-              className="w-full h-full p-4 bg-transparent resize-none focus:outline-none font-mono text-sm leading-relaxed text-slate-200"
+              className="w-full flex-1 p-4 bg-transparent resize-none focus:outline-none font-mono text-sm leading-relaxed text-slate-200"
             />
           </div>
         )}
         {(viewMode === 'preview' || viewMode === 'split') && (
-          <div className={`h-full overflow-y-auto p-6 ${viewMode === 'split' ? 'w-1/2' : 'w-full'}`}>
+          <div className={`h-full overflow-y-auto p-6 ${viewMode === 'split' ? 'w-full md:w-1/2' : 'w-full'}`}>
             <MarkdownViewer
               content={content}
               currentFolderId={currentFolderId}
@@ -256,6 +420,17 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           onClose={() => setLightboxImage(null)}
         />
       )}
+
+      {/* Comment Prompt Modal */}
+      <PromptModal
+        isOpen={isCommentModalOpen}
+        title="Add Comment"
+        message="Enter your annotation or comment to save directly inside this note:"
+        placeholder="e.g. Verify source data or check citation"
+        confirmText="Add Comment"
+        onConfirm={handleConfirmComment}
+        onCancel={() => setIsCommentModalOpen(false)}
+      />
     </div>
   );
 };

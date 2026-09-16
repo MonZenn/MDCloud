@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
+import rehypeRaw from 'rehype-raw';
 import rehypeKatex from 'rehype-katex';
 import rehypeHighlight from 'rehype-highlight';
 import { MermaidBlock } from './MermaidBlock';
@@ -120,6 +121,12 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
   const stableResolve = useCallback((src: string) => resolveRef.current(src), []);
   const stableClick = useCallback((url: string, alt?: string) => clickRef.current?.(url, alt), []);
 
+  // Pre-process ==highlight== syntax into <mark> tags
+  const processedContent = useMemo(() => {
+    if (!content) return '';
+    return content.replace(/==([^=\n]+)==/g, '<mark>$1</mark>');
+  }, [content]);
+
   const components = useMemo(
     () => ({
       code({ node: _node, className, children, ...props }: any) {
@@ -142,6 +149,25 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
             onImageClick={stableClick}
           />
         );
+      },
+      mark({ node: _node, children, 'data-comment': dataComment, title, ...props }: any) {
+        const comment = dataComment || title;
+        return (
+          <mark
+            className="bg-amber-400/25 text-amber-200 border-b border-amber-400/50 px-1 py-0.5 rounded inline-flex items-center gap-1 font-normal"
+            {...props}
+          >
+            <span>{children}</span>
+            {comment && (
+              <span
+                title={`Comment: ${comment}`}
+                className="inline-flex items-center text-[11px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/30 ml-1 font-sans select-none"
+              >
+                💬 {comment}
+              </span>
+            )}
+          </mark>
+        );
       }
     }),
     [stableResolve, stableClick]
@@ -152,10 +178,10 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
       <ReactMarkdown
         urlTransform={customUrlTransform}
         remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[rehypeKatex, rehypeHighlight]}
+        rehypePlugins={[rehypeRaw, rehypeKatex, rehypeHighlight]}
         components={components}
       >
-        {content}
+        {processedContent}
       </ReactMarkdown>
     </div>
   );

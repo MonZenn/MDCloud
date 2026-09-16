@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import { Workspace } from '../src/components/Workspace';
 import { SyncBadge } from '../src/components/SyncBadge';
 import { ImageLightbox } from '../src/components/ImageLightbox';
@@ -595,6 +595,43 @@ describe('Workspace', () => {
       expect(screen.getByText('Saved to Drive')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /Sync Failed \(Retry\)/i })).not.toBeInTheDocument();
       vi.useRealTimers();
+    });
+
+    it('renders editing toolbar with highlight and comment buttons and wraps text', async () => {
+      const onSaveContent = vi.fn();
+      render(
+        <Workspace
+          noteTitle="Notes.md"
+          initialContent="Select some text here"
+          currentFolderId="folder-1"
+          onSaveContent={onSaveContent}
+          onUploadImage={vi.fn()}
+          resolveImageBlobUrl={vi.fn().mockResolvedValue(null)}
+        />
+      );
+
+      expect(screen.getByRole('button', { name: /Highlight/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Add Comment/i })).toBeInTheDocument();
+
+      const textarea = screen.getByPlaceholderText('Write your markdown note here...') as HTMLTextAreaElement;
+      textarea.setSelectionRange(7, 16); // selects "some text"
+
+      // Click Highlight
+      fireEvent.click(screen.getByRole('button', { name: /Highlight/i }));
+      expect(textarea.value).toContain('<mark>some text</mark>');
+
+      // Select again and click Add Comment
+      textarea.setSelectionRange(0, 6); // selects "Select"
+      fireEvent.click(screen.getByRole('button', { name: /Add Comment/i }));
+
+      // Prompt modal opens
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).toBeInTheDocument();
+      const input = within(dialog).getByRole('textbox', { name: /Add Comment/i });
+      fireEvent.change(input, { target: { value: 'Important note' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: /Add Comment/i }));
+
+      expect(textarea.value).toContain('<mark data-comment="Important note">Select</mark>');
     });
   });
 });

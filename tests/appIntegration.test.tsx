@@ -663,5 +663,59 @@ describe('App Root Integration', () => {
         expect(screen.getByDisplayValue('Content for changed hash')).toBeInTheDocument();
       });
     });
+
+    it('supports bulk uploading markdown files and images with progress modal and IndexedDB caching', async () => {
+      saveConfig({ clientId: 'mock-client-id', folderId: 'folder-root', theme: 'dark' });
+      vi.spyOn(GisAuthManager.prototype, 'getToken').mockReturnValue('valid-token');
+      vi.spyOn(DriveService.prototype, 'listChildren').mockResolvedValue([]);
+
+      const createFileSpy = vi.spyOn(DriveService.prototype, 'createFile')
+        .mockImplementation(async (name: string, folderId: string, _content: string | Blob, mimeType: string) => {
+          return {
+            id: `id-${name}`,
+            name,
+            mimeType,
+            modifiedTime: '2026-09-17T08:00:00Z',
+            parents: [folderId],
+          };
+        });
+
+      render(<App />);
+
+      // Find file input in sidebar
+      const fileInput = await screen.findByTestId('sidebar-file-upload-input');
+
+      const mdFile = new File(['# Bulk Note 1 Content'], 'Bulk1.md', { type: 'text/markdown' });
+      const imgFile = new File(['image-bytes'], 'figure1.png', { type: 'image/png' });
+
+      await act(async () => {
+        fireEvent.change(fileInput, { target: { files: [mdFile, imgFile] } });
+      });
+
+      // Upload progress modal appears and completes
+      const modalHeader = await screen.findByText(/Upload complete/i);
+      expect(modalHeader).toBeInTheDocument();
+      expect(screen.getByText(/2 of 2 files uploaded successfully/i)).toBeInTheDocument();
+
+      // Verify drive service was called for both
+      expect(createFileSpy).toHaveBeenCalledWith('Bulk1.md', 'folder-root', '# Bulk Note 1 Content', 'text/markdown');
+      expect(createFileSpy).toHaveBeenCalledWith('figure1.png', 'folder-root', imgFile, 'image/png');
+
+      // Verify IndexedDB was populated
+      const cachedNote = await db.getNote('id-Bulk1.md');
+      expect(cachedNote).toBeTruthy();
+      expect(cachedNote?.content).toBe('# Bulk Note 1 Content');
+
+      const cachedImage = await db.getImage('id-figure1.png');
+      expect(cachedImage).toBeTruthy();
+      expect(cachedImage?.fileId).toBe('id-figure1.png');
+
+      // Close modal
+      const doneBtn = screen.getByRole('button', { name: /Done/i });
+      fireEvent.click(doneBtn);
+      await waitFor(() => {
+        expect(screen.queryByText(/Upload complete/i)).not.toBeInTheDocument();
+      });
+    });
   });
 });

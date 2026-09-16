@@ -7,6 +7,7 @@ import { resolveRelativePath, VirtualNode } from './services/pathResolver';
 import { Sidebar } from './components/Sidebar';
 import { Workspace } from './components/Workspace';
 import { SettingsModal } from './components/SettingsModal';
+import { UploadProgressModal } from './components/UploadProgressModal';
 import { IosInstallBanner } from './components/IosInstallBanner';
 import { Menu, Settings as SettingsIcon, LogIn, LogOut, Cloud } from 'lucide-react';
 
@@ -16,6 +17,21 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   const [noteContent, setNoteContent] = useState<string>('');
+  const [uploadProgress, setUploadProgress] = useState<{
+    isOpen: boolean;
+    current: number;
+    total: number;
+    currentFileName: string;
+    isComplete: boolean;
+    errors: string[];
+  }>({
+    isOpen: false,
+    current: 0,
+    total: 0,
+    currentFileName: '',
+    isComplete: false,
+    errors: [],
+  });
   const [tree, setTree] = useState<VirtualNode>(() => ({
     id: config?.folderId || 'root',
     name: 'My Notes',
@@ -242,6 +258,82 @@ export default function App() {
     return `./${file.name}`;
   };
 
+  const handleUploadFiles = async (filesToUpload: FileList | File[], targetFolderId: string) => {
+    const files = Array.from(filesToUpload);
+    if (files.length === 0) return;
+
+    setUploadProgress({
+      isOpen: true,
+      current: 0,
+      total: files.length,
+      currentFileName: files[0].name,
+      isComplete: false,
+      errors: [],
+    });
+
+    const errors: string[] = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      setUploadProgress((prev) => ({
+        ...prev,
+        current: i,
+        currentFileName: file.name,
+      }));
+
+      try {
+        const isImage = file.type.startsWith('image/');
+        const isMarkdown = file.name.endsWith('.md') || file.type === 'text/markdown' || file.name.endsWith('.txt');
+
+        if (isImage) {
+          const uploaded = await drive.createFile(file.name, targetFolderId, file, file.type);
+          await db.saveImage({
+            fileId: uploaded.id,
+            blob: file,
+            mimeType: file.type,
+            modifiedTime: uploaded.modifiedTime || new Date().toISOString(),
+          });
+        } else if (isMarkdown) {
+          const text = typeof file.text === 'function' ? await file.text() : await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsText(file);
+          });
+          const uploaded = await drive.createFile(file.name, targetFolderId, text, 'text/markdown');
+          await db.saveNote({
+            fileId: uploaded.id,
+            folderId: targetFolderId,
+            name: file.name,
+            content: text,
+            modifiedTime: uploaded.modifiedTime || new Date().toISOString(),
+            isDirty: false,
+          });
+        } else {
+          await drive.createFile(file.name, targetFolderId, file, file.type || 'application/octet-stream');
+        }
+      } catch (err: any) {
+        console.error(`Failed to upload ${file.name}:`, err);
+        errors.push(`${file.name}: ${err?.message || 'Upload failed'}`);
+      }
+
+      setUploadProgress((prev) => ({
+        ...prev,
+        current: i + 1,
+        errors: [...errors],
+      }));
+    }
+
+    setUploadProgress((prev) => ({
+      ...prev,
+      current: files.length,
+      isComplete: true,
+      errors,
+    }));
+
+    await loadTree();
+  };
+
   const handleDisconnect = () => {
     selectedNoteIdRef.current = null;
     auth.signOut();
@@ -350,6 +442,7 @@ export default function App() {
             }
             await loadTree();
           }}
+          onUploadFiles={handleUploadFiles}
           isOpen={sidebarOpen}
           onToggleOpen={() => setSidebarOpen((prev) => !prev)}
         />
@@ -377,6 +470,16 @@ export default function App() {
       </div>
 
       <IosInstallBanner />
+
+      <UploadProgressModal
+        isOpen={uploadProgress.isOpen}
+        current={uploadProgress.current}
+        total={uploadProgress.total}
+        currentFileName={uploadProgress.currentFileName}
+        isComplete={uploadProgress.isComplete}
+        errors={uploadProgress.errors}
+        onClose={() => setUploadProgress((prev) => ({ ...prev, isOpen: false }))}
+      />
 
       <SettingsModal
         isOpen={isSettingsOpen}

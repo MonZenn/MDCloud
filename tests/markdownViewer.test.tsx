@@ -51,6 +51,20 @@ describe('MarkdownViewer', () => {
     expect(screen.getByText('Cell 1')).toBeInTheDocument();
   });
 
+  it('renders highlights and comments in markdown', () => {
+    const md = 'This is ==highlighted text== and this has <mark data-comment="Verify citation">commented text</mark>.';
+    render(
+      <MarkdownViewer
+        content={md}
+        currentFolderId="folder-1"
+        resolveImageBlobUrl={vi.fn().mockResolvedValue(null)}
+      />
+    );
+    expect(screen.getByText('highlighted text')).toBeInTheDocument();
+    expect(screen.getByText('commented text')).toBeInTheDocument();
+    expect(screen.getByText(/Verify citation/i)).toBeInTheDocument();
+  });
+
   it('renders KaTeX math equations (inline and display)', () => {
     const md = 'Here is inline math: $E = mc^2$\n\n$$\n\\int_0^1 x^2 dx\n$$';
     const { container } = render(

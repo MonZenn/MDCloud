@@ -660,4 +660,173 @@ describe('Sidebar', () => {
       expect(handleToggleOpen).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('Action Bar, Target Indicator & Bulk Upload', () => {
+    it('renders action bar with + Note, + Folder, and Upload buttons, and shows root as initial target', () => {
+      render(
+        <Sidebar
+          tree={mockTree}
+          selectedFileId={null}
+          onSelectNote={vi.fn()}
+          onCreateNote={vi.fn()}
+          onCreateFolder={vi.fn()}
+          onDeleteItem={vi.fn()}
+          isOpen={true}
+          onToggleOpen={vi.fn()}
+        />
+      );
+
+      expect(screen.getByRole('button', { name: /\+ Note/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /\+ Folder/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Upload/i })).toBeInTheDocument();
+      expect(screen.getByTestId('target-folder-indicator')).toHaveTextContent('/Notes');
+    });
+
+    it('changes active target folder when a folder row is clicked', () => {
+      render(
+        <Sidebar
+          tree={mockTree}
+          selectedFileId={null}
+          onSelectNote={vi.fn()}
+          onCreateNote={vi.fn()}
+          onCreateFolder={vi.fn()}
+          onDeleteItem={vi.fn()}
+          isOpen={true}
+          onToggleOpen={vi.fn()}
+        />
+      );
+
+      const mathFolder = screen.getByText('Math');
+      fireEvent.click(mathFolder);
+
+      expect(screen.getByTestId('target-folder-indicator')).toHaveTextContent('/Math');
+    });
+
+    it('creates note in the selected active folder via action bar', async () => {
+      const onCreateNote = vi.fn().mockResolvedValue(undefined);
+      render(
+        <Sidebar
+          tree={mockTree}
+          selectedFileId={null}
+          onSelectNote={vi.fn()}
+          onCreateNote={onCreateNote}
+          onCreateFolder={vi.fn()}
+          onDeleteItem={vi.fn()}
+          isOpen={true}
+          onToggleOpen={vi.fn()}
+        />
+      );
+
+      // Select Math folder
+      fireEvent.click(screen.getByText('Math'));
+
+      // Click + Note action button
+      fireEvent.click(screen.getByRole('button', { name: /\+ Note/i }));
+
+      // Custom PromptModal dialog
+      const dialog = screen.getByRole('dialog');
+      const input = within(dialog).getByRole('textbox');
+      fireEvent.change(input, { target: { value: 'Geometry' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: /create|confirm|ok/i }));
+
+      expect(onCreateNote).toHaveBeenCalledWith('math', 'Geometry.md');
+    });
+
+    it('creates folder in the selected active folder via action bar', async () => {
+      const onCreateFolder = vi.fn().mockResolvedValue(undefined);
+      render(
+        <Sidebar
+          tree={mockTree}
+          selectedFileId={null}
+          onSelectNote={vi.fn()}
+          onCreateNote={vi.fn()}
+          onCreateFolder={onCreateFolder}
+          onDeleteItem={vi.fn()}
+          isOpen={true}
+          onToggleOpen={vi.fn()}
+        />
+      );
+
+      // Click + Folder action button (defaults to root)
+      fireEvent.click(screen.getByRole('button', { name: /\+ Folder/i }));
+
+      const dialog = screen.getByRole('dialog');
+      const input = within(dialog).getByRole('textbox');
+      fireEvent.change(input, { target: { value: 'Physics' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: /create|confirm|ok/i }));
+
+      expect(onCreateFolder).toHaveBeenCalledWith('root', 'Physics');
+    });
+
+    it('triggers file selection and calls onUploadFiles with selected files and active folder', async () => {
+      const onUploadFiles = vi.fn().mockResolvedValue(undefined);
+      render(
+        <Sidebar
+          tree={mockTree}
+          selectedFileId={null}
+          onSelectNote={vi.fn()}
+          onCreateNote={vi.fn()}
+          onCreateFolder={vi.fn()}
+          onDeleteItem={vi.fn()}
+          isOpen={true}
+          onToggleOpen={vi.fn()}
+          onUploadFiles={onUploadFiles}
+        />
+      );
+
+      // Select Math folder
+      fireEvent.click(screen.getByText('Math'));
+
+      const uploadBtn = screen.getByRole('button', { name: /Upload/i });
+      const fileInput = screen.getByTestId('sidebar-file-upload-input') as HTMLInputElement;
+
+      const clickSpy = vi.spyOn(fileInput, 'click');
+      fireEvent.click(uploadBtn);
+      expect(clickSpy).toHaveBeenCalled();
+
+      const files = [
+        new File(['# Topic 1'], 'Topic1.md', { type: 'text/markdown' }),
+        new File(['image data'], 'diagram.png', { type: 'image/png' }),
+      ];
+
+      fireEvent.change(fileInput, { target: { files } });
+      expect(onUploadFiles).toHaveBeenCalledWith(expect.arrayContaining(files), 'math');
+    });
+
+    it('handles drag and drop of files over sidebar targeting active folder', async () => {
+      const onUploadFiles = vi.fn().mockResolvedValue(undefined);
+      render(
+        <Sidebar
+          tree={mockTree}
+          selectedFileId={null}
+          onSelectNote={vi.fn()}
+          onCreateNote={vi.fn()}
+          onCreateFolder={vi.fn()}
+          onDeleteItem={vi.fn()}
+          isOpen={true}
+          onToggleOpen={vi.fn()}
+          onUploadFiles={onUploadFiles}
+        />
+      );
+
+      const sidebar = screen.getByTestId('sidebar');
+
+      // Drag over triggers drag state
+      fireEvent.dragOver(sidebar);
+      expect(screen.getByTestId('sidebar-dropzone')).toBeInTheDocument();
+
+      const files = [new File(['# Doc'], 'Doc.md', { type: 'text/markdown' })];
+
+      // Drop files
+      fireEvent.drop(sidebar, {
+        dataTransfer: {
+          files,
+        },
+      });
+
+      expect(onUploadFiles).toHaveBeenCalledWith(expect.arrayContaining(files), 'root');
+      expect(screen.queryByTestId('sidebar-dropzone')).not.toBeInTheDocument();
+    });
+  });
 });
+

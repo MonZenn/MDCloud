@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { VirtualNode } from '../services/pathResolver';
 import {
   Folder,
@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   Trash2,
   Search,
+  Upload,
   X,
 } from 'lucide-react';
 import { PromptModal } from './PromptModal';
@@ -22,13 +23,18 @@ export interface SidebarProps {
   onCreateNote: (folderId: string, name: string) => Promise<void>;
   onCreateFolder: (parentFolderId: string, name: string) => Promise<void>;
   onDeleteItem: (itemId: string) => Promise<void>;
+  onUploadFiles?: (files: FileList | File[], targetFolderId: string) => Promise<void>;
   isOpen: boolean;
   onToggleOpen: () => void;
+  activeFolderId?: string;
+  onSelectFolder?: (folderId: string) => void;
 }
 
 export interface TreeNodeItemProps {
   node: VirtualNode;
   selectedFileId: string | null;
+  activeFolderId?: string;
+  onSelectFolder?: (folderId: string) => void;
   onSelectNote: (noteId: string) => void;
   onCreateNote: (folderId: string, name: string) => Promise<void>;
   onCreateFolder: (parentFolderId: string, name: string) => Promise<void>;
@@ -83,6 +89,8 @@ export function filterTree(node: VirtualNode, query: string): VirtualNode | null
 export const TreeNodeItem: React.FC<TreeNodeItemProps> = ({
   node,
   selectedFileId,
+  activeFolderId,
+  onSelectFolder,
   onSelectNote,
   onCreateNote,
   onCreateFolder,
@@ -135,12 +143,19 @@ export const TreeNodeItem: React.FC<TreeNodeItemProps> = ({
     );
   }
 
+  const isFolderActive = activeFolderId === node.id;
+
   return (
     <div>
       <div
-        className="group flex items-center justify-between px-3 py-1.5 text-sm cursor-pointer text-slate-400 hover:bg-slate-800/70 rounded-md mx-2 transition-colors"
+        className={`group flex items-center justify-between px-3 py-1.5 text-sm cursor-pointer rounded-md mx-2 transition-colors ${
+          isFolderActive ? 'bg-indigo-600/20 text-indigo-200 font-medium' : 'text-slate-400 hover:bg-slate-800/70'
+        }`}
         style={{ paddingLeft: `${depth * 14 + 12}px` }}
-        onClick={() => setIsExpanded(!isExpanded)}
+        onClick={() => {
+          onSelectFolder?.(node.id);
+          setIsExpanded(!isExpanded);
+        }}
       >
         <div className="flex items-center gap-1.5 truncate">
           {isExpanded ? <ChevronDown size={14} className="shrink-0" /> : <ChevronRight size={14} className="shrink-0" />}
@@ -217,6 +232,8 @@ export const TreeNodeItem: React.FC<TreeNodeItemProps> = ({
               key={child.id}
               node={child}
               selectedFileId={selectedFileId}
+              activeFolderId={activeFolderId}
+              onSelectFolder={onSelectFolder}
               onSelectNote={onSelectNote}
               onCreateNote={onCreateNote}
               onCreateFolder={onCreateFolder}
@@ -240,10 +257,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCreateNote,
   onCreateFolder,
   onDeleteItem,
+  onUploadFiles,
   isOpen,
   onToggleOpen,
+  activeFolderId: propActiveFolderId,
+  onSelectFolder: propOnSelectFolder,
 }) => {
+  const [internalActiveFolderId, setInternalActiveFolderId] = useState<string>(tree.id);
   const [search, setSearch] = useState<string>('');
+  const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [promptConfig, setPromptConfig] = useState<{
     isOpen: boolean;
     title: string;
@@ -259,22 +283,167 @@ export const Sidebar: React.FC<SidebarProps> = ({
     onConfirm: () => void;
   } | null>(null);
 
+  const activeFolderId = propActiveFolderId ?? internalActiveFolderId;
+
+  const handleSelectFolder = (folderId: string) => {
+    setInternalActiveFolderId(folderId);
+    propOnSelectFolder?.(folderId);
+  };
+
+  const activeFolderName = useMemo(() => {
+    function find(node: VirtualNode): string | null {
+      if (node.id === activeFolderId) return node.name;
+      if (node.children) {
+        for (const child of node.children) {
+          const res = find(child);
+          if (res) return res;
+        }
+      }
+      return null;
+    }
+    return find(tree) || tree.name || 'Root';
+  }, [tree, activeFolderId]);
+
   const filteredTree = useMemo(() => {
     return filterTree(tree, search);
   }, [tree, search]);
 
   const searchActive = search.trim().length > 0;
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsDraggingOver(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      onUploadFiles?.(Array.from(files), activeFolderId);
+    }
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      onUploadFiles?.(Array.from(files), activeFolderId);
+    }
+    e.target.value = '';
+  };
+
   return (
     <aside
       data-testid="sidebar"
       aria-label="Sidebar"
-      className={`h-full bg-slate-950 border-r border-slate-800 flex flex-col transition-all duration-300 ${
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`relative h-full bg-slate-950 border-r border-slate-800 flex flex-col transition-all duration-300 ${
         isOpen ? 'w-64' : 'w-0 -translate-x-full overflow-hidden border-none'
       }`}
     >
+      {/* Drag and Drop Dropzone Overlay */}
+      {isDraggingOver && (
+        <div
+          data-testid="sidebar-dropzone"
+          className="absolute inset-0 bg-indigo-950/90 border-2 border-dashed border-indigo-500 rounded flex flex-col items-center justify-center gap-2 z-50 text-indigo-200 pointer-events-none p-4 text-center"
+        >
+          <Upload size={32} className="text-indigo-400 animate-bounce" />
+          <span className="font-semibold text-sm">Drop files to upload</span>
+          <span className="text-xs text-indigo-300 truncate max-w-full">to /{activeFolderName}</span>
+        </div>
+      )}
+
+      {/* Top Action Bar */}
+      <div className="p-2 border-b border-slate-800 bg-slate-950 flex items-center gap-1.5 shrink-0">
+        <button
+          type="button"
+          onClick={() => {
+            setPromptConfig({
+              isOpen: true,
+              title: 'New Note',
+              placeholder: 'Note.md',
+              onConfirm: (name) => {
+                const trimmed = name.trim();
+                if (trimmed) {
+                  onCreateNote(activeFolderId, trimmed.toLowerCase().endsWith('.md') ? trimmed : `${trimmed}.md`);
+                }
+              },
+            });
+          }}
+          title="Create Note in active folder"
+          aria-label="+ Note"
+          className="flex-1 py-1.5 px-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-medium flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
+        >
+          <FilePlus size={13} />
+          <span>+ Note</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setPromptConfig({
+              isOpen: true,
+              title: 'New Folder',
+              placeholder: 'Folder name',
+              onConfirm: (name) => {
+                const trimmed = name.trim();
+                if (trimmed) {
+                  onCreateFolder(activeFolderId, trimmed);
+                }
+              },
+            });
+          }}
+          title="Create Folder in active folder"
+          aria-label="+ Folder"
+          className="flex-1 py-1.5 px-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs font-medium flex items-center justify-center gap-1 transition-colors cursor-pointer"
+        >
+          <FolderPlus size={13} />
+          <span>+ Folder</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          title="Upload files to active folder"
+          aria-label="Upload"
+          className="flex-1 py-1.5 px-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs font-medium flex items-center justify-center gap-1 transition-colors cursor-pointer"
+        >
+          <Upload size={13} />
+          <span>Upload</span>
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          data-testid="sidebar-file-upload-input"
+          onChange={handleFileInputChange}
+        />
+      </div>
+
+      {/* Target Folder Indicator */}
+      <div
+        data-testid="target-folder-indicator"
+        className="px-3 py-1.5 bg-slate-900/90 border-b border-slate-800/80 flex items-center gap-1.5 text-xs text-slate-400 truncate shrink-0"
+        title={`Active Target: /${activeFolderName}`}
+      >
+        <span className="text-slate-500 font-medium shrink-0">Target:</span>
+        <Folder size={12} className="text-amber-400 shrink-0" />
+        <span className="text-indigo-300 font-semibold truncate">/{activeFolderName}</span>
+      </div>
+
       {/* Search Header */}
-      <div className="p-3 border-b border-slate-800 flex items-center gap-2">
+      <div className="p-3 border-b border-slate-800 flex items-center gap-2 shrink-0">
         <div className="relative flex-1">
           <Search size={14} className="absolute left-2.5 top-2.5 text-slate-500" />
           <input
@@ -316,6 +485,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <TreeNodeItem
             node={filteredTree}
             selectedFileId={selectedFileId}
+            activeFolderId={activeFolderId}
+            onSelectFolder={handleSelectFolder}
             onSelectNote={onSelectNote}
             onCreateNote={onCreateNote}
             onCreateFolder={onCreateFolder}
