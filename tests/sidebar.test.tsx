@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import { Sidebar } from '../src/components/Sidebar';
 import { VirtualNode } from '../src/services/pathResolver';
 
@@ -662,7 +662,7 @@ describe('Sidebar', () => {
   });
 
   describe('Action Bar, Target Indicator & Bulk Upload', () => {
-    it('renders action bar with + Note, + Folder, and Upload buttons, and shows root as initial target', () => {
+    it('renders compact action bar with + Note, New Folder, Upload Files, and Upload Folder buttons, and shows root as initial target', () => {
       render(
         <Sidebar
           tree={mockTree}
@@ -677,8 +677,9 @@ describe('Sidebar', () => {
       );
 
       expect(screen.getByRole('button', { name: /\+ Note/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /\+ Folder/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Upload/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^new folder$/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /upload files/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /upload folder/i })).toBeInTheDocument();
       expect(screen.getByTestId('target-folder-indicator')).toHaveTextContent('/Notes');
     });
 
@@ -747,8 +748,8 @@ describe('Sidebar', () => {
         />
       );
 
-      // Click + Folder action button (defaults to root)
-      fireEvent.click(screen.getByRole('button', { name: /\+ Folder/i }));
+      // Click New Folder action button (defaults to root)
+      fireEvent.click(screen.getByRole('button', { name: /^new folder$/i }));
 
       const dialog = screen.getByRole('dialog');
       const input = within(dialog).getByRole('textbox');
@@ -777,7 +778,7 @@ describe('Sidebar', () => {
       // Select Math folder
       fireEvent.click(screen.getByText('Math'));
 
-      const uploadBtn = screen.getByRole('button', { name: /Upload/i });
+      const uploadBtn = screen.getByRole('button', { name: /upload files/i });
       const fileInput = screen.getByTestId('sidebar-file-upload-input') as HTMLInputElement;
 
       const clickSpy = vi.spyOn(fileInput, 'click');
@@ -790,10 +791,57 @@ describe('Sidebar', () => {
       ];
 
       fireEvent.change(fileInput, { target: { files } });
-      expect(onUploadFiles).toHaveBeenCalledWith(expect.arrayContaining(files), 'math');
+      expect(onUploadFiles).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ file: files[0], relativePath: 'Topic1.md' }),
+          expect.objectContaining({ file: files[1], relativePath: 'diagram.png' }),
+        ]),
+        'math'
+      );
     });
 
-    it('handles drag and drop of files over sidebar targeting active folder', async () => {
+    it('triggers folder picker and calls onUploadFiles with relative paths from webkitRelativePath', async () => {
+      const onUploadFiles = vi.fn().mockResolvedValue(undefined);
+      render(
+        <Sidebar
+          tree={mockTree}
+          selectedFileId={null}
+          onSelectNote={vi.fn()}
+          onCreateNote={vi.fn()}
+          onCreateFolder={vi.fn()}
+          onDeleteItem={vi.fn()}
+          isOpen={true}
+          onToggleOpen={vi.fn()}
+          onUploadFiles={onUploadFiles}
+        />
+      );
+
+      const folderUploadBtn = screen.getByRole('button', { name: /upload folder/i });
+      const folderInput = screen.getByTestId('sidebar-folder-upload-input') as HTMLInputElement;
+
+      const clickSpy = vi.spyOn(folderInput, 'click');
+      fireEvent.click(folderUploadBtn);
+      expect(clickSpy).toHaveBeenCalled();
+
+      const imgFile = new File(['image-bytes'], 'plot.png', { type: 'image/png' });
+      Object.defineProperty(imgFile, 'webkitRelativePath', {
+        value: 'figures/plot.png',
+        writable: false,
+      });
+
+      fireEvent.change(folderInput, { target: { files: [imgFile] } });
+      expect(onUploadFiles).toHaveBeenCalledWith(
+        [
+          expect.objectContaining({
+            file: imgFile,
+            relativePath: 'figures/plot.png',
+          }),
+        ],
+        'root'
+      );
+    });
+
+    it('handles drag and drop of folders with webkitGetAsEntry', async () => {
       const onUploadFiles = vi.fn().mockResolvedValue(undefined);
       render(
         <Sidebar
@@ -815,16 +863,61 @@ describe('Sidebar', () => {
       fireEvent.dragOver(sidebar);
       expect(screen.getByTestId('sidebar-dropzone')).toBeInTheDocument();
 
-      const files = [new File(['# Doc'], 'Doc.md', { type: 'text/markdown' })];
+      const chartFile = new File(['image-bits'], 'chart.png', { type: 'image/png' });
 
-      // Drop files
-      fireEvent.drop(sidebar, {
-        dataTransfer: {
-          files,
+      // Mock FileSystemDirectoryEntry for "images" folder containing "chart.png"
+      const mockFileEntry = {
+        isFile: true,
+        isDirectory: false,
+        name: 'chart.png',
+        fullPath: '/images/chart.png',
+        file: (cb: (f: File) => void) => cb(chartFile),
+      };
+
+      const mockDirEntry = {
+        isFile: false,
+        isDirectory: true,
+        name: 'images',
+        fullPath: '/images',
+        createReader: () => {
+          let read = false;
+          return {
+            readEntries: (cb: (entries: any[]) => void) => {
+              if (!read) {
+                read = true;
+                cb([mockFileEntry]);
+              } else {
+                cb([]);
+              }
+            },
+          };
         },
+      };
+
+      const mockItem = {
+        kind: 'file',
+        webkitGetAsEntry: () => mockDirEntry,
+      };
+
+      // Drop folder entry
+      await act(async () => {
+        fireEvent.drop(sidebar, {
+          dataTransfer: {
+            items: [mockItem],
+            files: [chartFile],
+          },
+        });
       });
 
-      expect(onUploadFiles).toHaveBeenCalledWith(expect.arrayContaining(files), 'root');
+      expect(onUploadFiles).toHaveBeenCalledWith(
+        [
+          expect.objectContaining({
+            file: chartFile,
+            relativePath: 'images/chart.png',
+          }),
+        ],
+        'root'
+      );
       expect(screen.queryByTestId('sidebar-dropzone')).not.toBeInTheDocument();
     });
   });

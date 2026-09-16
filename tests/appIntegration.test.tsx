@@ -717,5 +717,60 @@ describe('App Root Integration', () => {
         expect(screen.queryByText(/Upload complete/i)).not.toBeInTheDocument();
       });
     });
+
+    it('supports uploading nested folders containing images, auto-creating Drive subfolders and caching in IndexedDB', async () => {
+      saveConfig({ clientId: 'mock-client-id', folderId: 'folder-root', theme: 'dark' });
+      vi.spyOn(GisAuthManager.prototype, 'getToken').mockReturnValue('valid-token');
+      vi.spyOn(DriveService.prototype, 'listChildren').mockResolvedValue([]);
+
+      const createFolderSpy = vi.spyOn(DriveService.prototype, 'createFolder')
+        .mockResolvedValue({
+          id: 'folder-figures-id',
+          name: 'figures',
+          mimeType: 'application/vnd.google-apps.folder',
+          modifiedTime: '2026-09-17T08:00:00Z',
+          parents: ['folder-root'],
+        });
+
+      const createFileSpy = vi.spyOn(DriveService.prototype, 'createFile')
+        .mockImplementation(async (name: string, folderId: string, _content: string | Blob, mimeType: string) => {
+          return {
+            id: `id-${name}`,
+            name,
+            mimeType,
+            modifiedTime: '2026-09-17T08:00:00Z',
+            parents: [folderId],
+          };
+        });
+
+      render(<App />);
+
+      const folderInput = await screen.findByTestId('sidebar-folder-upload-input');
+
+      const plotFile = new File(['plot-data'], 'plot1.png', { type: 'image/png' });
+      Object.defineProperty(plotFile, 'webkitRelativePath', {
+        value: 'figures/plot1.png',
+        writable: false,
+      });
+
+      await act(async () => {
+        fireEvent.change(folderInput, { target: { files: [plotFile] } });
+      });
+
+      // Modal finishes
+      const modalHeader = await screen.findByText(/Upload complete/i);
+      expect(modalHeader).toBeInTheDocument();
+
+      // Subfolder was created in Google Drive
+      expect(createFolderSpy).toHaveBeenCalledWith('figures', 'folder-root');
+
+      // File was uploaded into the subfolder
+      expect(createFileSpy).toHaveBeenCalledWith('plot1.png', 'folder-figures-id', plotFile, 'image/png');
+
+      // Image was cached in IndexedDB
+      const cachedImage = await db.getImage('id-plot1.png');
+      expect(cachedImage).toBeTruthy();
+      expect(cachedImage?.fileId).toBe('id-plot1.png');
+    });
   });
 });

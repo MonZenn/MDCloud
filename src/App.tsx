@@ -4,7 +4,7 @@ import { GisAuthManager } from './services/gisAuth';
 import { DriveService } from './services/driveService';
 import { DbStore } from './services/dbStore';
 import { resolveRelativePath, VirtualNode } from './services/pathResolver';
-import { Sidebar } from './components/Sidebar';
+import { Sidebar, UploadItem } from './components/Sidebar';
 import { Workspace } from './components/Workspace';
 import { SettingsModal } from './components/SettingsModal';
 import { UploadProgressModal } from './components/UploadProgressModal';
@@ -258,35 +258,90 @@ export default function App() {
     return `./${file.name}`;
   };
 
-  const handleUploadFiles = async (filesToUpload: FileList | File[], targetFolderId: string) => {
-    const files = Array.from(filesToUpload);
-    if (files.length === 0) return;
+  const handleUploadFiles = async (
+    itemsToUpload: (UploadItem | File)[] | FileList,
+    targetFolderId: string
+  ) => {
+    const rawItems = Array.from(itemsToUpload);
+    if (rawItems.length === 0) return;
+
+    const items: UploadItem[] = rawItems.map((item) => {
+      if ('file' in item && typeof (item as any).relativePath === 'string') {
+        return item as UploadItem;
+      }
+      const file = item as File;
+      return {
+        file,
+        relativePath: (file as any).webkitRelativePath || file.name,
+      };
+    });
 
     setUploadProgress({
       isOpen: true,
       current: 0,
-      total: files.length,
-      currentFileName: files[0].name,
+      total: items.length,
+      currentFileName: items[0].relativePath,
       isComplete: false,
       errors: [],
     });
 
     const errors: string[] = [];
+    const folderCache = new Map<string, string>();
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+    const resolveDestinationFolder = async (relativePath: string): Promise<string> => {
+      const parts = relativePath.split('/').filter(Boolean);
+      if (parts.length <= 1) {
+        return targetFolderId;
+      }
+      const dirParts = parts.slice(0, -1);
+      let currentParentId = targetFolderId;
+      let currentAccumPath = '';
+
+      for (const segment of dirParts) {
+        currentAccumPath = currentAccumPath ? `${currentAccumPath}/${segment}` : segment;
+        if (folderCache.has(currentAccumPath)) {
+          currentParentId = folderCache.get(currentAccumPath)!;
+          continue;
+        }
+
+        try {
+          const children = await drive.listChildren(currentParentId);
+          const existing = children.find(
+            (c) => c.name.toLowerCase() === segment.toLowerCase() && c.mimeType === 'application/vnd.google-apps.folder'
+          );
+          if (existing) {
+            currentParentId = existing.id;
+            folderCache.set(currentAccumPath, existing.id);
+            continue;
+          }
+        } catch {
+          // Ignore and proceed to create
+        }
+
+        const createdFolder = await drive.createFolder(segment, currentParentId);
+        currentParentId = createdFolder.id;
+        folderCache.set(currentAccumPath, createdFolder.id);
+      }
+
+      return currentParentId;
+    };
+
+    for (let i = 0; i < items.length; i++) {
+      const { file, relativePath } = items[i];
       setUploadProgress((prev) => ({
         ...prev,
         current: i,
-        currentFileName: file.name,
+        currentFileName: relativePath,
       }));
 
       try {
+        const destFolderId = await resolveDestinationFolder(relativePath);
+        const fileName = file.name;
         const isImage = file.type.startsWith('image/');
-        const isMarkdown = file.name.endsWith('.md') || file.type === 'text/markdown' || file.name.endsWith('.txt');
+        const isMarkdown = fileName.endsWith('.md') || file.type === 'text/markdown' || fileName.endsWith('.txt');
 
         if (isImage) {
-          const uploaded = await drive.createFile(file.name, targetFolderId, file, file.type);
+          const uploaded = await drive.createFile(fileName, destFolderId, file, file.type);
           await db.saveImage({
             fileId: uploaded.id,
             blob: file,
@@ -300,21 +355,21 @@ export default function App() {
             reader.onerror = reject;
             reader.readAsText(file);
           });
-          const uploaded = await drive.createFile(file.name, targetFolderId, text, 'text/markdown');
+          const uploaded = await drive.createFile(fileName, destFolderId, text, 'text/markdown');
           await db.saveNote({
             fileId: uploaded.id,
-            folderId: targetFolderId,
-            name: file.name,
+            folderId: destFolderId,
+            name: fileName,
             content: text,
             modifiedTime: uploaded.modifiedTime || new Date().toISOString(),
             isDirty: false,
           });
         } else {
-          await drive.createFile(file.name, targetFolderId, file, file.type || 'application/octet-stream');
+          await drive.createFile(fileName, destFolderId, file, file.type || 'application/octet-stream');
         }
       } catch (err: any) {
-        console.error(`Failed to upload ${file.name}:`, err);
-        errors.push(`${file.name}: ${err?.message || 'Upload failed'}`);
+        console.error(`Failed to upload ${relativePath}:`, err);
+        errors.push(`${relativePath}: ${err?.message || 'Upload failed'}`);
       }
 
       setUploadProgress((prev) => ({
@@ -326,7 +381,7 @@ export default function App() {
 
     setUploadProgress((prev) => ({
       ...prev,
-      current: files.length,
+      current: items.length,
       isComplete: true,
       errors,
     }));

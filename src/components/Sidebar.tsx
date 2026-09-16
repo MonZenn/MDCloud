@@ -3,6 +3,7 @@ import { VirtualNode } from '../services/pathResolver';
 import {
   Folder,
   FolderPlus,
+  FolderUp,
   FilePlus,
   FileText,
   ChevronRight,
@@ -16,6 +17,11 @@ import {
 import { PromptModal } from './PromptModal';
 import { ConfirmModal } from './ConfirmModal';
 
+export interface UploadItem {
+  file: File;
+  relativePath: string;
+}
+
 export interface SidebarProps {
   tree: VirtualNode;
   selectedFileId: string | null;
@@ -23,7 +29,7 @@ export interface SidebarProps {
   onCreateNote: (folderId: string, name: string) => Promise<void>;
   onCreateFolder: (parentFolderId: string, name: string) => Promise<void>;
   onDeleteItem: (itemId: string) => Promise<void>;
-  onUploadFiles?: (files: FileList | File[], targetFolderId: string) => Promise<void>;
+  onUploadFiles?: (items: UploadItem[] | File[], targetFolderId: string) => Promise<void>;
   isOpen: boolean;
   onToggleOpen: () => void;
   activeFolderId?: string;
@@ -84,6 +90,69 @@ export function filterTree(node: VirtualNode, query: string): VirtualNode | null
   }
 
   return null;
+}
+
+/**
+ * Recursively extracts files with relative paths from a DataTransfer object.
+ * Traverses directories using HTML5 FileSystem Directory Entries API when available.
+ */
+export async function extractDroppedItems(dataTransfer: DataTransfer): Promise<UploadItem[]> {
+  const items = dataTransfer.items;
+  if (items && items.length > 0) {
+    const results: UploadItem[] = [];
+
+    const traverseEntry = async (entry: any, path: string): Promise<void> => {
+      if (!entry) return;
+      if (entry.isFile) {
+        const file = await new Promise<File>((resolve, reject) => {
+          entry.file(resolve, reject);
+        });
+        const relativePath = path ? `${path}/${entry.name}` : entry.name;
+        results.push({ file, relativePath });
+      } else if (entry.isDirectory) {
+        const currentPath = path ? `${path}/${entry.name}` : entry.name;
+        const reader = entry.createReader();
+        const readEntries = (): Promise<any[]> => {
+          return new Promise((resolve, reject) => {
+            reader.readEntries(resolve, reject);
+          });
+        };
+
+        let batch = await readEntries();
+        while (batch.length > 0) {
+          for (const child of batch) {
+            await traverseEntry(child, currentPath);
+          }
+          batch = await readEntries();
+        }
+      }
+    };
+
+    const hasEntries = Array.from(items).some(
+      (item) => typeof item.webkitGetAsEntry === 'function' && item.webkitGetAsEntry()
+    );
+
+    if (hasEntries) {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (typeof item.webkitGetAsEntry === 'function') {
+          const entry = item.webkitGetAsEntry();
+          if (entry) {
+            await traverseEntry(entry, '');
+          }
+        }
+      }
+      if (results.length > 0) {
+        return results;
+      }
+    }
+  }
+
+  const files = Array.from(dataTransfer.files || []);
+  return files.map((file) => ({
+    file,
+    relativePath: (file as any).webkitRelativePath || file.name,
+  }));
 }
 
 export const TreeNodeItem: React.FC<TreeNodeItemProps> = ({
@@ -267,6 +336,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [search, setSearch] = useState<string>('');
   const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   const [promptConfig, setPromptConfig] = useState<{
     isOpen: boolean;
@@ -324,20 +394,38 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDraggingOver(false);
-    const files = e.dataTransfer.files;
-    if (files && files.length > 0) {
-      onUploadFiles?.(Array.from(files), activeFolderId);
+    if (onUploadFiles) {
+      const items = await extractDroppedItems(e.dataTransfer);
+      if (items.length > 0) {
+        onUploadFiles(items, activeFolderId);
+      }
     }
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
-      onUploadFiles?.(Array.from(files), activeFolderId);
+      const items: UploadItem[] = Array.from(files).map((file) => ({
+        file,
+        relativePath: (file as any).webkitRelativePath || file.name,
+      }));
+      onUploadFiles?.(items, activeFolderId);
+    }
+    e.target.value = '';
+  };
+
+  const handleFolderInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      const items: UploadItem[] = Array.from(files).map((file) => ({
+        file,
+        relativePath: (file as any).webkitRelativePath || file.name,
+      }));
+      onUploadFiles?.(items, activeFolderId);
     }
     e.target.value = '';
   };
@@ -360,13 +448,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className="absolute inset-0 bg-indigo-950/90 border-2 border-dashed border-indigo-500 rounded flex flex-col items-center justify-center gap-2 z-50 text-indigo-200 pointer-events-none p-4 text-center"
         >
           <Upload size={32} className="text-indigo-400 animate-bounce" />
-          <span className="font-semibold text-sm">Drop files to upload</span>
+          <span className="font-semibold text-sm">Drop files or folders to upload</span>
           <span className="text-xs text-indigo-300 truncate max-w-full">to /{activeFolderName}</span>
         </div>
       )}
 
-      {/* Top Action Bar */}
-      <div className="p-2 border-b border-slate-800 bg-slate-950 flex items-center gap-1.5 shrink-0">
+      {/* Top Action Bar - Compact and Sleek */}
+      <div className="px-3 py-2 border-b border-slate-800 bg-slate-950 flex items-center justify-between gap-1.5 shrink-0">
         <button
           type="button"
           onClick={() => {
@@ -384,43 +472,54 @@ export const Sidebar: React.FC<SidebarProps> = ({
           }}
           title="Create Note in active folder"
           aria-label="+ Note"
-          className="flex-1 py-1.5 px-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-medium flex items-center justify-center gap-1 transition-colors shadow-sm cursor-pointer"
+          className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-medium flex items-center gap-1 transition-colors shadow-sm cursor-pointer"
         >
           <FilePlus size={13} />
           <span>+ Note</span>
         </button>
-        <button
-          type="button"
-          onClick={() => {
-            setPromptConfig({
-              isOpen: true,
-              title: 'New Folder',
-              placeholder: 'Folder name',
-              onConfirm: (name) => {
-                const trimmed = name.trim();
-                if (trimmed) {
-                  onCreateFolder(activeFolderId, trimmed);
-                }
-              },
-            });
-          }}
-          title="Create Folder in active folder"
-          aria-label="+ Folder"
-          className="flex-1 py-1.5 px-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs font-medium flex items-center justify-center gap-1 transition-colors cursor-pointer"
-        >
-          <FolderPlus size={13} />
-          <span>+ Folder</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          title="Upload files to active folder"
-          aria-label="Upload"
-          className="flex-1 py-1.5 px-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs font-medium flex items-center justify-center gap-1 transition-colors cursor-pointer"
-        >
-          <Upload size={13} />
-          <span>Upload</span>
-        </button>
+
+        <div className="flex items-center gap-1 text-slate-400">
+          <button
+            type="button"
+            onClick={() => {
+              setPromptConfig({
+                isOpen: true,
+                title: 'New Folder',
+                placeholder: 'Folder name',
+                onConfirm: (name) => {
+                  const trimmed = name.trim();
+                  if (trimmed) {
+                    onCreateFolder(activeFolderId, trimmed);
+                  }
+                },
+              });
+            }}
+            title="New Folder in active folder"
+            aria-label="New Folder"
+            className="p-1.5 hover:text-slate-200 hover:bg-slate-800 rounded transition-colors cursor-pointer"
+          >
+            <FolderPlus size={15} />
+          </button>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            title="Upload Files to active folder"
+            aria-label="Upload Files"
+            className="p-1.5 hover:text-slate-200 hover:bg-slate-800 rounded transition-colors cursor-pointer"
+          >
+            <Upload size={15} />
+          </button>
+          <button
+            type="button"
+            onClick={() => folderInputRef.current?.click()}
+            title="Upload Folder to active folder"
+            aria-label="Upload Folder"
+            className="p-1.5 hover:text-slate-200 hover:bg-slate-800 rounded transition-colors cursor-pointer"
+          >
+            <FolderUp size={15} />
+          </button>
+        </div>
+
         <input
           ref={fileInputRef}
           type="file"
@@ -428,6 +527,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className="hidden"
           data-testid="sidebar-file-upload-input"
           onChange={handleFileInputChange}
+        />
+        <input
+          ref={folderInputRef}
+          type="file"
+          multiple
+          // @ts-expect-error - webkitdirectory is standard for folder picker
+          webkitdirectory=""
+          directory=""
+          className="hidden"
+          data-testid="sidebar-folder-upload-input"
+          onChange={handleFolderInputChange}
         />
       </div>
 
