@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { Sidebar } from '../src/components/Sidebar';
 import { VirtualNode } from '../src/services/pathResolver';
 
@@ -280,9 +280,8 @@ describe('Sidebar', () => {
   });
 
   describe('Note Creation', () => {
-    it('appends .md extension if missing when creating note', () => {
+    it('appends .md extension if missing when creating note via custom modal', () => {
       const handleCreateNote = vi.fn();
-      vi.mocked(window.prompt).mockReturnValue('Physics');
 
       render(
         <Sidebar
@@ -300,13 +299,21 @@ describe('Sidebar', () => {
       const newNoteBtn = screen.getByLabelText('New Note in Math');
       fireEvent.click(newNoteBtn);
 
-      expect(window.prompt).toHaveBeenCalled();
+      expect(window.prompt).not.toHaveBeenCalled();
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).toBeInTheDocument();
+      expect(screen.getByText('New Note')).toBeInTheDocument();
+
+      const input = within(dialog).getByRole('textbox');
+      fireEvent.change(input, { target: { value: 'Physics' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+
       expect(handleCreateNote).toHaveBeenCalledWith('math', 'Physics.md');
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
     it('does not duplicate .md extension if already provided', () => {
       const handleCreateNote = vi.fn();
-      vi.mocked(window.prompt).mockReturnValue('Calculus.md');
 
       render(
         <Sidebar
@@ -323,13 +330,18 @@ describe('Sidebar', () => {
 
       const newNoteBtn = screen.getByLabelText('New Note in Math');
       fireEvent.click(newNoteBtn);
+
+      const dialog = screen.getByRole('dialog');
+      const input = within(dialog).getByRole('textbox');
+      fireEvent.change(input, { target: { value: 'Calculus.md' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
 
       expect(handleCreateNote).toHaveBeenCalledWith('math', 'Calculus.md');
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
-    it('does not call onCreateNote if prompt is cancelled or empty', () => {
+    it('does not call onCreateNote if modal is cancelled or empty', () => {
       const handleCreateNote = vi.fn();
-      vi.mocked(window.prompt).mockReturnValue(null);
 
       render(
         <Sidebar
@@ -347,19 +359,26 @@ describe('Sidebar', () => {
       const newNoteBtn = screen.getByLabelText('New Note in Math');
       fireEvent.click(newNoteBtn);
 
+      let dialog = screen.getByRole('dialog');
+      // Cancel button
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
       expect(handleCreateNote).not.toHaveBeenCalled();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
-      // Empty string
-      vi.mocked(window.prompt).mockReturnValue('   ');
+      // Open again, empty submission is disabled or ignored
       fireEvent.click(newNoteBtn);
+      dialog = screen.getByRole('dialog');
+      const input = within(dialog).getByRole('textbox');
+      fireEvent.change(input, { target: { value: '   ' } });
+      const createBtn = within(dialog).getByRole('button', { name: 'Create' });
+      fireEvent.click(createBtn);
       expect(handleCreateNote).not.toHaveBeenCalled();
     });
   });
 
   describe('Folder Creation', () => {
-    it('creates folder with given name from prompt', () => {
+    it('creates folder with given name from custom modal', () => {
       const handleCreateFolder = vi.fn();
-      vi.mocked(window.prompt).mockReturnValue('Geometry');
 
       render(
         <Sidebar
@@ -377,13 +396,21 @@ describe('Sidebar', () => {
       const newFolderBtn = screen.getByLabelText('New Folder in Math');
       fireEvent.click(newFolderBtn);
 
-      expect(window.prompt).toHaveBeenCalled();
+      expect(window.prompt).not.toHaveBeenCalled();
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).toBeInTheDocument();
+      expect(screen.getByText('New Folder')).toBeInTheDocument();
+
+      const input = within(dialog).getByRole('textbox');
+      fireEvent.change(input, { target: { value: 'Geometry' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+
       expect(handleCreateFolder).toHaveBeenCalledWith('math', 'Geometry');
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
-    it('does not call onCreateFolder if prompt is cancelled or empty', () => {
+    it('does not call onCreateFolder if modal is cancelled', () => {
       const handleCreateFolder = vi.fn();
-      vi.mocked(window.prompt).mockReturnValue(null);
 
       render(
         <Sidebar
@@ -401,19 +428,17 @@ describe('Sidebar', () => {
       const newFolderBtn = screen.getByLabelText('New Folder in Math');
       fireEvent.click(newFolderBtn);
 
+      const dialog = screen.getByRole('dialog');
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
       expect(handleCreateFolder).not.toHaveBeenCalled();
-
-      // Whitespace
-      vi.mocked(window.prompt).mockReturnValue('   ');
-      fireEvent.click(newFolderBtn);
-      expect(handleCreateFolder).not.toHaveBeenCalled();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
   });
 
+
   describe('Item Deletion', () => {
-    it('deletes a note when confirmed', () => {
+    it('deletes a note when confirmed in custom modal', () => {
       const handleDeleteItem = vi.fn();
-      vi.mocked(window.confirm).mockReturnValue(true);
 
       render(
         <Sidebar
@@ -431,13 +456,18 @@ describe('Sidebar', () => {
       const deleteBtn = screen.getByLabelText('Delete Intro.md');
       fireEvent.click(deleteBtn);
 
-      expect(window.confirm).toHaveBeenCalledWith('Delete Intro.md?');
+      expect(window.confirm).not.toHaveBeenCalled();
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      expect(screen.getByText('Delete Note')).toBeInTheDocument();
+      expect(screen.getByText(/Are you sure you want to delete "Intro.md"\?/)).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
       expect(handleDeleteItem).toHaveBeenCalledWith('note-1');
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
-    it('does not delete note when confirmation is cancelled', () => {
+    it('does not delete note when confirmation modal is cancelled', () => {
       const handleDeleteItem = vi.fn();
-      vi.mocked(window.confirm).mockReturnValue(false);
 
       render(
         <Sidebar
@@ -455,13 +485,15 @@ describe('Sidebar', () => {
       const deleteBtn = screen.getByLabelText('Delete Intro.md');
       fireEvent.click(deleteBtn);
 
-      expect(window.confirm).toHaveBeenCalledWith('Delete Intro.md?');
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
       expect(handleDeleteItem).not.toHaveBeenCalled();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
-    it('deletes a folder when confirmed', () => {
+    it('deletes a folder when confirmed in custom modal', () => {
       const handleDeleteItem = vi.fn();
-      vi.mocked(window.confirm).mockReturnValue(true);
 
       render(
         <Sidebar
@@ -479,13 +511,18 @@ describe('Sidebar', () => {
       const deleteBtn = screen.getByLabelText('Delete Math');
       fireEvent.click(deleteBtn);
 
-      expect(window.confirm).toHaveBeenCalledWith('Delete Math?');
+      expect(window.confirm).not.toHaveBeenCalled();
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      expect(screen.getByText('Delete Folder')).toBeInTheDocument();
+      expect(screen.getByText(/Are you sure you want to delete "Math"\?/)).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
       expect(handleDeleteItem).toHaveBeenCalledWith('math');
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
-    it('does not delete folder when confirmation is cancelled', () => {
+    it('does not delete folder when confirmation modal is cancelled', () => {
       const handleDeleteItem = vi.fn();
-      vi.mocked(window.confirm).mockReturnValue(false);
 
       render(
         <Sidebar
@@ -503,13 +540,13 @@ describe('Sidebar', () => {
       const deleteBtn = screen.getByLabelText('Delete Math');
       fireEvent.click(deleteBtn);
 
-      expect(window.confirm).toHaveBeenCalledWith('Delete Math?');
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
       expect(handleDeleteItem).not.toHaveBeenCalled();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
-    it('creates note directly in root folder', () => {
+    it('creates note directly in root folder via custom modal', () => {
       const handleCreateNote = vi.fn();
-      vi.mocked(window.prompt).mockReturnValue('RootNote');
 
       render(
         <Sidebar
@@ -527,12 +564,17 @@ describe('Sidebar', () => {
       const newNoteBtn = screen.getByLabelText('New Note in Notes');
       fireEvent.click(newNoteBtn);
 
+      const dialog = screen.getByRole('dialog');
+      const input = within(dialog).getByRole('textbox');
+      fireEvent.change(input, { target: { value: 'RootNote' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+
       expect(handleCreateNote).toHaveBeenCalledWith('root', 'RootNote.md');
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
-    it('creates folder directly in root folder', () => {
+    it('creates folder directly in root folder via custom modal', () => {
       const handleCreateFolder = vi.fn();
-      vi.mocked(window.prompt).mockReturnValue('RootSubfolder');
 
       render(
         <Sidebar
@@ -550,9 +592,17 @@ describe('Sidebar', () => {
       const newFolderBtn = screen.getByLabelText('New Folder in Notes');
       fireEvent.click(newFolderBtn);
 
+      const dialog = screen.getByRole('dialog');
+      const input = within(dialog).getByRole('textbox');
+      fireEvent.change(input, { target: { value: 'RootSubfolder' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+
       expect(handleCreateFolder).toHaveBeenCalledWith('root', 'RootSubfolder');
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
   });
+
+
 
   describe('Open vs Closed State & Toggle', () => {
     it('applies open and closed width classes depending on isOpen', () => {

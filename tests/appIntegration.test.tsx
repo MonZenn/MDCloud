@@ -482,11 +482,17 @@ describe('App Root Integration', () => {
 
     await screen.findByText('Existing.md');
 
-    // Create note
-    vi.spyOn(window, 'prompt').mockReturnValue('NewNote.md');
+    // Create note via custom PromptModal
     const newNoteBtn = screen.getByRole('button', { name: /New Note in My Notes/i });
     await act(async () => {
       fireEvent.click(newNoteBtn);
+    });
+
+    const promptDialog = screen.getByRole('dialog');
+    const input = within(promptDialog).getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'NewNote.md' } });
+    await act(async () => {
+      fireEvent.click(within(promptDialog).getByRole('button', { name: 'Create' }));
     });
 
     expect(createFileSpy).toHaveBeenCalledWith('NewNote.md', 'folder-root', '# NewNote.md', 'text/markdown');
@@ -495,11 +501,15 @@ describe('App Root Integration', () => {
       expect(within(sidebar).getByText('NewNote.md')).toBeInTheDocument();
     });
 
-    // Delete note
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    // Delete note via custom ConfirmModal
     const deleteBtn = within(sidebar).getByRole('button', { name: /Delete Existing.md/i });
     await act(async () => {
       fireEvent.click(deleteBtn);
+    });
+
+    const confirmDialog = screen.getByRole('dialog');
+    await act(async () => {
+      fireEvent.click(within(confirmDialog).getByRole('button', { name: 'Delete' }));
     });
 
     expect(deleteSpy).toHaveBeenCalledWith('note-existing');

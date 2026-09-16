@@ -12,6 +12,8 @@ import {
   Search,
   X,
 } from 'lucide-react';
+import { PromptModal } from './PromptModal';
+import { ConfirmModal } from './ConfirmModal';
 
 export interface SidebarProps {
   tree: VirtualNode;
@@ -33,6 +35,17 @@ export interface TreeNodeItemProps {
   onDeleteItem: (itemId: string) => Promise<void>;
   depth: number;
   searchActive?: boolean;
+  onRequestPrompt: (options: {
+    title: string;
+    placeholder?: string;
+    defaultValue?: string;
+    onConfirm: (val: string) => void;
+  }) => void;
+  onRequestConfirm: (options: {
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }) => void;
 }
 
 /**
@@ -76,6 +89,8 @@ export const TreeNodeItem: React.FC<TreeNodeItemProps> = ({
   onDeleteItem,
   depth,
   searchActive = false,
+  onRequestPrompt,
+  onRequestConfirm,
 }) => {
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
 
@@ -104,9 +119,11 @@ export const TreeNodeItem: React.FC<TreeNodeItemProps> = ({
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            if (window.confirm(`Delete ${node.name}?`)) {
-              onDeleteItem(node.id);
-            }
+            onRequestConfirm({
+              title: 'Delete Note',
+              message: `Are you sure you want to delete "${node.name}"? This action cannot be undone.`,
+              onConfirm: () => onDeleteItem(node.id),
+            });
           }}
           title="Delete Note"
           aria-label={`Delete ${node.name}`}
@@ -135,11 +152,16 @@ export const TreeNodeItem: React.FC<TreeNodeItemProps> = ({
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              const name = window.prompt('Note name (e.g. Note.md):');
-              if (name && name.trim()) {
-                const trimmed = name.trim();
-                onCreateNote(node.id, trimmed.toLowerCase().endsWith('.md') ? trimmed : `${trimmed}.md`);
-              }
+              onRequestPrompt({
+                title: 'New Note',
+                placeholder: 'Note.md',
+                onConfirm: (name) => {
+                  const trimmed = name.trim();
+                  if (trimmed) {
+                    onCreateNote(node.id, trimmed.toLowerCase().endsWith('.md') ? trimmed : `${trimmed}.md`);
+                  }
+                },
+              });
             }}
             title="New Note"
             aria-label={`New Note in ${node.name}`}
@@ -151,10 +173,16 @@ export const TreeNodeItem: React.FC<TreeNodeItemProps> = ({
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              const name = window.prompt('Folder name:');
-              if (name && name.trim()) {
-                onCreateFolder(node.id, name.trim());
-              }
+              onRequestPrompt({
+                title: 'New Folder',
+                placeholder: 'Folder name',
+                onConfirm: (name) => {
+                  const trimmed = name.trim();
+                  if (trimmed) {
+                    onCreateFolder(node.id, trimmed);
+                  }
+                },
+              });
             }}
             title="New Folder"
             aria-label={`New Folder in ${node.name}`}
@@ -167,9 +195,11 @@ export const TreeNodeItem: React.FC<TreeNodeItemProps> = ({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                if (window.confirm(`Delete ${node.name}?`)) {
-                  onDeleteItem(node.id);
-                }
+                onRequestConfirm({
+                  title: 'Delete Folder',
+                  message: `Are you sure you want to delete "${node.name}"? This will delete all notes and files inside it.`,
+                  onConfirm: () => onDeleteItem(node.id),
+                });
               }}
               title="Delete Folder"
               aria-label={`Delete ${node.name}`}
@@ -193,6 +223,8 @@ export const TreeNodeItem: React.FC<TreeNodeItemProps> = ({
               onDeleteItem={onDeleteItem}
               depth={depth + 1}
               searchActive={searchActive}
+              onRequestPrompt={onRequestPrompt}
+              onRequestConfirm={onRequestConfirm}
             />
           ))}
         </div>
@@ -211,20 +243,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpen,
   onToggleOpen,
 }) => {
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState<string>('');
+  const [promptConfig, setPromptConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    placeholder?: string;
+    defaultValue?: string;
+    onConfirm: (val: string) => void;
+  } | null>(null);
 
-  const searchActive = search.trim().length > 0;
+  const [confirmConfig, setConfirmConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
+
   const filteredTree = useMemo(() => {
-    if (!tree) return null;
     return filterTree(tree, search);
   }, [tree, search]);
+
+  const searchActive = search.trim().length > 0;
 
   return (
     <aside
       data-testid="sidebar"
       aria-label="Sidebar"
       className={`h-full bg-slate-950 border-r border-slate-800 flex flex-col transition-all duration-300 ${
-        isOpen ? 'w-64' : 'w-0 overflow-hidden'
+        isOpen ? 'w-64' : 'w-0 -translate-x-full overflow-hidden border-none'
       }`}
     >
       {/* Search Header */}
@@ -233,9 +279,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <Search size={14} className="absolute left-2.5 top-2.5 text-slate-500" />
           <input
             type="text"
-            placeholder="Search notes..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search notes..."
             aria-label="Search notes"
             className="w-full pl-8 pr-7 py-1.5 bg-slate-900 border border-slate-800 rounded text-xs text-slate-200 focus:outline-none focus:border-indigo-500 placeholder-slate-500"
           />
@@ -276,6 +322,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onDeleteItem={onDeleteItem}
             depth={0}
             searchActive={searchActive}
+            onRequestPrompt={(opts) => setPromptConfig({ ...opts, isOpen: true })}
+            onRequestConfirm={(opts) => setConfirmConfig({ ...opts, isOpen: true })}
           />
         ) : (
           <div className="px-4 py-6 text-center text-xs text-slate-500">
@@ -283,6 +331,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
       </div>
+
+      {/* Custom Input Prompt Modal */}
+      {promptConfig && (
+        <PromptModal
+          isOpen={promptConfig.isOpen}
+          title={promptConfig.title}
+          placeholder={promptConfig.placeholder}
+          defaultValue={promptConfig.defaultValue}
+          onConfirm={(val) => {
+            promptConfig.onConfirm(val);
+            setPromptConfig(null);
+          }}
+          onCancel={() => setPromptConfig(null)}
+        />
+      )}
+
+      {/* Custom Confirmation Modal */}
+      {confirmConfig && (
+        <ConfirmModal
+          isOpen={confirmConfig.isOpen}
+          title={confirmConfig.title}
+          message={confirmConfig.message}
+          onConfirm={() => {
+            confirmConfig.onConfirm();
+            setConfirmConfig(null);
+          }}
+          onCancel={() => setConfirmConfig(null)}
+        />
+      )}
     </aside>
   );
 };

@@ -4,3 +4,8 @@ dist-ssr
 *.local
 .superpowers
 .DS_Store
+client_secret*.json
+*.secret.json
+donotpush*
+*.env
+*.env.*
