@@ -33,6 +33,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   useEffect(() => {
     setContent(initialContent);
     contentRef.current = initialContent;
+    setSyncStatus('synced');
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = null;
@@ -59,7 +60,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     saveTimeoutRef.current = setTimeout(async () => {
       try {
         await onSaveContent(newContent);
-        setSyncStatus('synced');
+        if (contentRef.current === newContent) {
+          setSyncStatus('synced');
+        }
       } catch {
         setSyncStatus('error');
       }
@@ -69,11 +72,15 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const handleRetry = useCallback(async () => {
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
     }
     setSyncStatus('saving');
+    const toSave = contentRef.current;
     try {
-      await onSaveContent(contentRef.current);
-      setSyncStatus('synced');
+      await onSaveContent(toSave);
+      if (contentRef.current === toSave) {
+        setSyncStatus('synced');
+      }
     } catch {
       setSyncStatus('error');
     }
@@ -92,6 +99,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           const cursor = e.currentTarget.selectionStart ?? contentRef.current.length;
           if (saveTimeoutRef.current) {
             clearTimeout(saveTimeoutRef.current);
+            saveTimeoutRef.current = null;
           }
           setSyncStatus('saving');
           try {
@@ -102,7 +110,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             setContent(updated);
             contentRef.current = updated;
             await onSaveContent(updated);
-            setSyncStatus('synced');
+            if (contentRef.current === updated) {
+              setSyncStatus('synced');
+            }
           } catch {
             setSyncStatus('error');
           }
@@ -117,6 +127,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     if (file) {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
       }
       setSyncStatus('saving');
       try {
@@ -125,7 +136,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         setContent(updated);
         contentRef.current = updated;
         await onSaveContent(updated);
-        setSyncStatus('synced');
+        if (contentRef.current === updated) {
+          setSyncStatus('synced');
+        }
       } catch {
         setSyncStatus('error');
       }

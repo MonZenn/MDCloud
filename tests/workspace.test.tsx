@@ -94,6 +94,20 @@ describe('ImageLightbox', () => {
     fireEvent.click(img);
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it('calls onClose when Escape key is pressed', () => {
+    const onClose = vi.fn();
+    render(
+      <ImageLightbox
+        url="blob:http://localhost/test-figure.png"
+        alt="Test Diagram"
+        onClose={onClose}
+      />
+    );
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('Workspace', () => {
@@ -242,6 +256,49 @@ describe('Workspace', () => {
       expect(onSaveContent).toHaveBeenCalledTimes(2);
       expect(onSaveContent).toHaveBeenLastCalledWith('# Draft Edited');
       expect(screen.getByText('Saved to Drive')).toBeInTheDocument();
+    });
+
+    it('does not prematurely transition to synced if user types while save is in flight', async () => {
+      let resolveSave: () => void;
+      const onSaveContent = vi.fn().mockImplementation(() => {
+        return new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        });
+      });
+
+      render(
+        <Workspace
+          noteTitle="Calculus.md"
+          initialContent="# Note"
+          currentFolderId="folder-1"
+          onSaveContent={onSaveContent}
+          onUploadImage={vi.fn()}
+          resolveImageBlobUrl={vi.fn().mockResolvedValue(null)}
+        />
+      );
+
+      const textarea = screen.getByPlaceholderText('Write your markdown note here...');
+      fireEvent.change(textarea, { target: { value: '# Note A' } });
+
+      // Advance debounce timer to fire the save
+      act(() => {
+        vi.advanceTimersByTime(1500);
+      });
+      expect(onSaveContent).toHaveBeenCalledWith('# Note A');
+      expect(screen.getByText('Saving...')).toBeInTheDocument();
+
+      // User types further while save is still in flight
+      fireEvent.change(textarea, { target: { value: '# Note AB' } });
+      expect(screen.getByText('Saving...')).toBeInTheDocument();
+
+      // First save completes
+      await act(async () => {
+        resolveSave!();
+      });
+
+      // Status should STILL be 'Saving...' because contentRef.current ('# Note AB') !== '# Note A'
+      expect(screen.getByText('Saving...')).toBeInTheDocument();
+      expect(screen.queryByText('Saved to Drive')).not.toBeInTheDocument();
     });
   });
 
@@ -432,6 +489,47 @@ describe('Workspace', () => {
       );
 
       expect(screen.getByDisplayValue('# Note 2 - Changed')).toBeInTheDocument();
+    });
+
+    it('resets syncStatus to synced when initialContent prop changes even after an error', async () => {
+      const onSaveContent = vi.fn().mockRejectedValue(new Error('Network error'));
+
+      const { rerender } = render(
+        <Workspace
+          noteTitle="Calculus.md"
+          initialContent="# Note 1"
+          currentFolderId="folder-1"
+          onSaveContent={onSaveContent}
+          onUploadImage={vi.fn()}
+          resolveImageBlobUrl={vi.fn().mockResolvedValue(null)}
+        />
+      );
+
+      vi.useFakeTimers();
+      const textarea = screen.getByPlaceholderText('Write your markdown note here...');
+      fireEvent.change(textarea, { target: { value: '# Note 1 Edited' } });
+
+      await act(async () => {
+        vi.advanceTimersByTime(1500);
+      });
+
+      expect(screen.getByRole('button', { name: /Sync Failed \(Retry\)/i })).toBeInTheDocument();
+
+      // Switch to another note
+      rerender(
+        <Workspace
+          noteTitle="LinearAlgebra.md"
+          initialContent="# Note 2"
+          currentFolderId="folder-1"
+          onSaveContent={onSaveContent}
+          onUploadImage={vi.fn()}
+          resolveImageBlobUrl={vi.fn().mockResolvedValue(null)}
+        />
+      );
+
+      expect(screen.getByText('Saved to Drive')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Sync Failed \(Retry\)/i })).not.toBeInTheDocument();
+      vi.useRealTimers();
     });
   });
 });
