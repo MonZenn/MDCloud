@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -39,6 +39,12 @@ const MarkdownImage: React.FC<{
   resolveImageBlobUrl: (src: string) => Promise<string | null>;
   onImageClick?: (url: string, alt?: string) => void;
 }> = ({ src, alt, resolveImageBlobUrl, onImageClick }) => {
+  const resolveRef = useRef(resolveImageBlobUrl);
+  resolveRef.current = resolveImageBlobUrl;
+
+  const clickRef = useRef(onImageClick);
+  clickRef.current = onImageClick;
+
   const isDirect = isDirectUrl(src);
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(isDirect ? (src || null) : null);
   const [loading, setLoading] = useState<boolean>(!isDirect && Boolean(src));
@@ -55,7 +61,7 @@ const MarkdownImage: React.FC<{
       return;
     }
     setLoading(true);
-    resolveImageBlobUrl(src)
+    resolveRef.current(src)
       .then((url) => {
         if (active) {
           setResolvedUrl(url);
@@ -71,7 +77,7 @@ const MarkdownImage: React.FC<{
     return () => {
       active = false;
     };
-  }, [src, resolveImageBlobUrl]);
+  }, [src]);
 
   if (loading) {
     return (
@@ -94,7 +100,7 @@ const MarkdownImage: React.FC<{
       src={resolvedUrl}
       alt={alt || ''}
       className="max-w-full h-auto rounded-lg my-3 shadow-md cursor-zoom-in hover:opacity-95 transition-opacity"
-      onClick={() => onImageClick?.(resolvedUrl, alt)}
+      onClick={() => clickRef.current?.(resolvedUrl, alt)}
     />
   );
 };
@@ -105,35 +111,49 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
   resolveImageBlobUrl,
   onImageClick
 }) => {
+  const resolveRef = useRef(resolveImageBlobUrl);
+  resolveRef.current = resolveImageBlobUrl;
+
+  const clickRef = useRef(onImageClick);
+  clickRef.current = onImageClick;
+
+  const stableResolve = useCallback((src: string) => resolveRef.current(src), []);
+  const stableClick = useCallback((url: string, alt?: string) => clickRef.current?.(url, alt), []);
+
+  const components = useMemo(
+    () => ({
+      code({ node: _node, className, children, ...props }: any) {
+        const match = /language-(\w+)/.exec(className || '');
+        if (match && match[1] === 'mermaid') {
+          return <MermaidBlock chart={String(children).replace(/\n$/, '')} />;
+        }
+        return (
+          <code className={className} {...props}>
+            {children}
+          </code>
+        );
+      },
+      img({ src, alt }: any) {
+        return (
+          <MarkdownImage
+            src={src}
+            alt={alt}
+            resolveImageBlobUrl={stableResolve}
+            onImageClick={stableClick}
+          />
+        );
+      }
+    }),
+    [stableResolve, stableClick]
+  );
+
   return (
     <div className="prose prose-invert max-w-none prose-pre:bg-slate-950 prose-pre:border prose-pre:border-slate-800 prose-img:rounded-lg">
       <ReactMarkdown
         urlTransform={customUrlTransform}
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex, rehypeHighlight]}
-        components={{
-          code({ node: _node, className, children, ...props }: any) {
-            const match = /language-(\w+)/.exec(className || '');
-            if (match && match[1] === 'mermaid') {
-              return <MermaidBlock chart={String(children).replace(/\n$/, '')} />;
-            }
-            return (
-              <code className={className} {...props}>
-                {children}
-              </code>
-            );
-          },
-          img({ src, alt }) {
-            return (
-              <MarkdownImage
-                src={src}
-                alt={alt}
-                resolveImageBlobUrl={resolveImageBlobUrl}
-                onImageClick={onImageClick}
-              />
-            );
-          }
-        }}
+        components={components}
       >
         {content}
       </ReactMarkdown>

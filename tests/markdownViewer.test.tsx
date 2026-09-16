@@ -242,4 +242,35 @@ describe('MarkdownViewer', () => {
       expect(container.querySelector('[data-testid="mermaid-svg"]')).toBeInTheDocument();
     });
   });
+
+  it('does not re-resolve image or flash loading when parent re-renders with new resolveImageBlobUrl reference', async () => {
+    const resolve1 = vi.fn().mockResolvedValue('blob:http://localhost/stable-img');
+    const { rerender } = render(
+      <MarkdownViewer
+        content="![Stable Image](./stable.png)"
+        currentFolderId="folder-1"
+        resolveImageBlobUrl={resolve1}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('img')).toHaveAttribute('src', 'blob:http://localhost/stable-img');
+    });
+    expect(resolve1).toHaveBeenCalledTimes(1);
+
+    // Re-render with new function reference for resolveImageBlobUrl
+    const resolve2 = vi.fn().mockResolvedValue('blob:http://localhost/stable-img-new');
+    rerender(
+      <MarkdownViewer
+        content="![Stable Image](./stable.png)"
+        currentFolderId="folder-1"
+        resolveImageBlobUrl={resolve2}
+      />
+    );
+
+    // Should NOT have triggered loading flash or called resolve2 because src did not change
+    expect(screen.queryByText('Loading figure: ./stable.png...')).not.toBeInTheDocument();
+    expect(resolve2).not.toHaveBeenCalled();
+    expect(screen.getByRole('img')).toHaveAttribute('src', 'blob:http://localhost/stable-img');
+  });
 });
