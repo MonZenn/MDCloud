@@ -1,11 +1,23 @@
+# Dependencies & Build Outputs
 node_modules
 dist
 dist-ssr
-*.local
-.superpowers
-.DS_Store
+
+# Environment & Secrets (Never commit secrets or credentials)
 client_secret*.json
 *.secret.json
 donotpush*
 *.env
 *.env.*
+*.pem
+*.key
+*.cert
+
+# Local Configuration & Superpowers
+*.local
+.superpowers
+.DS_Store
+
+# Excluded from repository
+tests
+docs
