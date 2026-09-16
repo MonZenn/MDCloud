@@ -67,7 +67,7 @@ export class DriveService {
     mimeType: string
   ): Promise<DriveFileItem> {
     const metadata = { name, parents: [parentFolderId], mimeType };
-    const boundary = '-------314159265358979323846';
+    const boundary = '-------' + Date.now().toString(16) + Math.random().toString(16).substring(2);
     const delimiter = `\r\n--${boundary}\r\n`;
     const closeDelimiter = `\r\n--${boundary}--`;
 

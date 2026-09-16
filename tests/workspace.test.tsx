@@ -462,6 +462,71 @@ describe('Workspace', () => {
     });
   });
 
+  describe('Unmount Data Loss Protection', () => {
+    it('flushes unsaved changes on unmount', async () => {
+      vi.useFakeTimers();
+      const onSaveContent = vi.fn().mockResolvedValue(undefined);
+
+      const { unmount } = render(
+        <Workspace
+          noteTitle="Calculus.md"
+          initialContent="Initial content."
+          currentFolderId="folder-1"
+          onSaveContent={onSaveContent}
+          onUploadImage={vi.fn()}
+          resolveImageBlobUrl={vi.fn().mockResolvedValue(null)}
+        />
+      );
+
+      const textarea = screen.getByPlaceholderText('Write your markdown note here...');
+      fireEvent.change(textarea, { target: { value: 'Edited content.' } });
+      
+      expect(onSaveContent).not.toHaveBeenCalled();
+      
+      unmount();
+      
+      expect(onSaveContent).toHaveBeenCalledWith('Edited content.');
+      vi.useRealTimers();
+    });
+
+    it('flushes unsaved changes before switching notes', async () => {
+      vi.useFakeTimers();
+      const onSaveContent1 = vi.fn().mockResolvedValue(undefined);
+      const onSaveContent2 = vi.fn().mockResolvedValue(undefined);
+
+      const { rerender } = render(
+        <Workspace
+          noteTitle="Note1.md"
+          initialContent="Initial 1"
+          currentFolderId="folder-1"
+          onSaveContent={onSaveContent1}
+          onUploadImage={vi.fn()}
+          resolveImageBlobUrl={vi.fn().mockResolvedValue(null)}
+        />
+      );
+
+      const textarea = screen.getByPlaceholderText('Write your markdown note here...');
+      fireEvent.change(textarea, { target: { value: 'Edited 1' } });
+      
+      expect(onSaveContent1).not.toHaveBeenCalled();
+      
+      rerender(
+        <Workspace
+          noteTitle="Note2.md"
+          initialContent="Initial 2"
+          currentFolderId="folder-1"
+          onSaveContent={onSaveContent2}
+          onUploadImage={vi.fn()}
+          resolveImageBlobUrl={vi.fn().mockResolvedValue(null)}
+        />
+      );
+      
+      expect(onSaveContent1).toHaveBeenCalledWith('Edited 1');
+      expect(onSaveContent2).not.toHaveBeenCalled();
+      vi.useRealTimers();
+    });
+  });
+
   describe('Prop synchronization', () => {
     it('updates editor content when initialContent prop changes', () => {
       const { rerender } = render(

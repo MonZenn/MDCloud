@@ -577,4 +577,81 @@ describe('App Root Integration', () => {
     expect(screen.getByDisplayValue('# Fast Note Content')).toBeInTheDocument();
     expect(screen.queryByDisplayValue('# Stale Slow Note Content')).not.toBeInTheDocument();
   });
+
+  describe('Routing and Offline Edits', () => {
+    it('preserves offline edits and syncs them when selecting a dirty note', async () => {
+      saveConfig({ clientId: 'mock-client-id', folderId: 'folder-root', theme: 'dark' });
+      vi.spyOn(GisAuthManager.prototype, 'getToken').mockReturnValue('valid-token');
+      vi.spyOn(DriveService.prototype, 'listChildren').mockResolvedValue([{
+        id: 'note-dirty', name: 'Dirty.md', mimeType: 'text/markdown', modifiedTime: '2026-09-16T12:00:00Z', parents: ['folder-root']
+      }]);
+      
+      const updateFileTextSpy = vi.spyOn(DriveService.prototype, 'updateFileText').mockResolvedValue({} as any);
+      
+      await db.saveNote({
+        fileId: 'note-dirty',
+        folderId: 'folder-root',
+        name: 'Dirty.md',
+        content: 'Local dirty content',
+        modifiedTime: '2026-09-16T12:05:00Z',
+        isDirty: true
+      });
+      
+      render(<App />);
+      
+      const dirtyNote = await screen.findByText('Dirty.md');
+      await act(async () => {
+        fireEvent.click(dirtyNote);
+      });
+      
+      expect(await screen.findByDisplayValue('Local dirty content')).toBeInTheDocument();
+      await waitFor(() => {
+        expect(updateFileTextSpy).toHaveBeenCalledWith('note-dirty', 'Local dirty content');
+      });
+      
+      const cached = await db.getNote('note-dirty');
+      expect(cached?.isDirty).toBe(false);
+    });
+
+    it('navigates to note on initial hash load', async () => {
+      saveConfig({ clientId: 'mock-client-id', folderId: 'folder-root', theme: 'dark' });
+      vi.spyOn(GisAuthManager.prototype, 'getToken').mockReturnValue('valid-token');
+      vi.spyOn(DriveService.prototype, 'listChildren').mockResolvedValue([{
+        id: 'note-hash', name: 'Hash.md', mimeType: 'text/markdown', modifiedTime: '2026-09-16T12:00:00Z', parents: ['folder-root']
+      }]);
+      vi.spyOn(DriveService.prototype, 'getFileText').mockResolvedValue('Hash loaded content');
+      
+      window.location.hash = '#/folder-root/note-hash';
+      
+      render(<App />);
+      
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('Hash loaded content')).toBeInTheDocument();
+      });
+    });
+
+    it('navigates to note on hashchange event', async () => {
+      saveConfig({ clientId: 'mock-client-id', folderId: 'folder-root', theme: 'dark' });
+      vi.spyOn(GisAuthManager.prototype, 'getToken').mockReturnValue('valid-token');
+      vi.spyOn(DriveService.prototype, 'listChildren').mockResolvedValue([{
+        id: 'note-changed', name: 'Changed.md', mimeType: 'text/markdown', modifiedTime: '2026-09-16T12:00:00Z', parents: ['folder-root']
+      }]);
+      
+      const getFileTextSpy = vi.spyOn(DriveService.prototype, 'getFileText').mockResolvedValue('Content for changed hash');
+      
+      window.location.hash = ''; // Clear hash from previous test
+      
+      render(<App />);
+      
+      await act(async () => {
+        window.location.hash = '#/folder-root/note-changed';
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      });
+      
+      await waitFor(() => {
+        expect(getFileTextSpy).toHaveBeenCalledWith('note-changed');
+        expect(screen.getByDisplayValue('Content for changed hash')).toBeInTheDocument();
+      });
+    });
+  });
 });

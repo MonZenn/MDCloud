@@ -48,7 +48,8 @@ export default function App() {
   const loadTree = useCallback(async () => {
     if (!config?.folderId || !auth.getToken()) return;
     try {
-      const fetchChildren = async (folderId: string): Promise<VirtualNode[]> => {
+      const fetchChildren = async (folderId: string, depth = 0): Promise<VirtualNode[]> => {
+        if (depth >= 8) return [];
         const items = await drive.listChildren(folderId);
         return Promise.all(
           items.map(async (f) => {
@@ -56,7 +57,7 @@ export default function App() {
             let children: VirtualNode[] | undefined;
             if (isFolder) {
               try {
-                children = await fetchChildren(f.id);
+                children = await fetchChildren(f.id, depth + 1);
               } catch {
                 children = [];
               }
@@ -92,6 +93,15 @@ export default function App() {
     }
   }, [config?.folderId, loadTree]);
 
+  const objectUrlsRef = useRef<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    return () => {
+      objectUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
+      objectUrlsRef.current.clear();
+    };
+  }, []);
+
   const resolveImageBlobUrl = useCallback(
     async (src: string): Promise<string | null> => {
       if (!activeNoteId) return null;
@@ -101,8 +111,16 @@ export default function App() {
       const resolved = resolveRelativePath(parentFolderId, src, nodeMap);
       if (!resolved) return null;
 
+      if (objectUrlsRef.current.has(resolved.id)) {
+        return objectUrlsRef.current.get(resolved.id)!;
+      }
+
       const cached = await db.getImage(resolved.id);
-      if (cached) return URL.createObjectURL(cached.blob);
+      if (cached) {
+        const url = URL.createObjectURL(cached.blob);
+        objectUrlsRef.current.set(resolved.id, url);
+        return url;
+      }
 
       try {
         const blob = await drive.getFileBlob(resolved.id);
@@ -112,7 +130,9 @@ export default function App() {
           mimeType: blob.type,
           modifiedTime: new Date().toISOString()
         });
-        return URL.createObjectURL(blob);
+        const url = URL.createObjectURL(blob);
+        objectUrlsRef.current.set(resolved.id, url);
+        return url;
       } catch {
         return null;
       }
@@ -120,12 +140,31 @@ export default function App() {
     [activeNoteId, nodeMap, config?.folderId, db, drive]
   );
 
-  const handleSelectNote = async (noteId: string, noteName?: string, folderId?: string) => {
+  const handleSelectNote = useCallback(async (noteId: string, noteName?: string, folderId?: string) => {
     selectedNoteIdRef.current = noteId;
     setActiveNoteId(noteId);
+    setNoteContent(''); // Clean reset
+    
+    if (folderId) {
+      window.location.hash = `#/${folderId}/${noteId}`;
+    } else {
+      window.location.hash = `#/${noteId}`;
+    }
+
     const cached = await db.getNote(noteId);
     if (selectedNoteIdRef.current !== noteId) return;
+    
     setNoteContent(cached ? cached.content : '');
+
+    if (cached?.isDirty) {
+      try {
+        await drive.updateFileText(noteId, cached.content);
+        await db.saveNote({ ...cached, isDirty: false });
+      } catch (err) {
+        console.error('Failed to sync dirty note on load', err);
+      }
+      return;
+    }
 
     try {
       const remote = await drive.getFileText(noteId);
@@ -143,7 +182,27 @@ export default function App() {
     } catch (err) {
       console.error('Error fetching note', err);
     }
-  };
+  }, [db, drive, nodeMap]);
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      if (!isAuthenticated) return;
+      const hash = window.location.hash.replace(/^#\//, '');
+      if (hash) {
+        const parts = hash.split('/');
+        const noteId = parts.length === 2 ? parts[1] : parts[0];
+        const folderId = parts.length === 2 ? parts[0] : undefined;
+        if (noteId && noteId !== selectedNoteIdRef.current) {
+          handleSelectNote(noteId, undefined, folderId);
+        }
+      }
+    };
+    
+    window.addEventListener('hashchange', handleHashChange);
+    if (isAuthenticated) handleHashChange();
+    
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [handleSelectNote, isAuthenticated]);
 
   const handleSaveContent = async (content: string) => {
     if (!activeNoteId) return;
@@ -196,6 +255,9 @@ export default function App() {
     });
     setActiveNoteId(null);
     setNoteContent('');
+    objectUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
+    objectUrlsRef.current.clear();
+    window.location.hash = '';
   };
 
   const activeNote = activeNoteId ? nodeMap.get(activeNoteId) : null;

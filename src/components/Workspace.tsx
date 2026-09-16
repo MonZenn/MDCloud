@@ -29,22 +29,29 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const contentRef = useRef<string>(initialContent);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingSaveRef = useRef<{ content: string; saveFn: (c: string) => Promise<void> } | null>(null);
 
-  useEffect(() => {
-    setContent(initialContent);
-    contentRef.current = initialContent;
-    setSyncStatus('synced');
+  const flushPendingSave = () => {
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = null;
     }
+    if (pendingSaveRef.current) {
+      pendingSaveRef.current.saveFn(pendingSaveRef.current.content).catch(() => {});
+      pendingSaveRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    flushPendingSave();
+    setContent(initialContent);
+    contentRef.current = initialContent;
+    setSyncStatus('synced');
   }, [initialContent]);
 
   useEffect(() => {
     return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
+      flushPendingSave();
     };
   }, []);
 
@@ -53,14 +60,19 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     setContent(newContent);
     contentRef.current = newContent;
     setSyncStatus('saving');
+    pendingSaveRef.current = { content: newContent, saveFn: onSaveContent };
 
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
     saveTimeoutRef.current = setTimeout(async () => {
       try {
-        await onSaveContent(newContent);
-        if (contentRef.current === newContent) {
+        const toSave = pendingSaveRef.current?.content || newContent;
+        const saveFn = pendingSaveRef.current?.saveFn || onSaveContent;
+        pendingSaveRef.current = null;
+        saveTimeoutRef.current = null;
+        await saveFn(toSave);
+        if (contentRef.current === toSave) {
           setSyncStatus('synced');
         }
       } catch {
@@ -74,6 +86,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = null;
     }
+    pendingSaveRef.current = null;
     setSyncStatus('saving');
     const toSave = contentRef.current;
     try {
@@ -101,6 +114,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             clearTimeout(saveTimeoutRef.current);
             saveTimeoutRef.current = null;
           }
+          pendingSaveRef.current = null;
           setSyncStatus('saving');
           try {
             const relativePath = await onUploadImage(file);
@@ -129,6 +143,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = null;
       }
+      pendingSaveRef.current = null;
       setSyncStatus('saving');
       try {
         const rel = await onUploadImage(file);
