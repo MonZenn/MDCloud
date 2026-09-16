@@ -221,10 +221,17 @@ Using `idb`, the app maintains three object stores:
 * Vite configured with `base: './'`.
 * Hash-based routing (`#/folder-id/file-id`) ensures flawless deep linking and page refreshes on GitHub Pages without HTTP 404 redirects.
 
-#### 2. Progressive Web App (PWA)
-* Configured via `vite-plugin-pwa`:
-  * Manifest with icons (192x192, 512x512, maskable), theme color `#0f172a`, standalone display mode.
-  * Service worker caches app shell (HTML, CSS, JS, fonts) for offline startup.
+#### 2. Progressive Web App (PWA) & iOS/iPadOS Home Screen Support
+* **Native iPad and iPhone Home Screen Installation**:
+  * Configured via `vite-plugin-pwa` and custom HTML head tags for Apple devices:
+    * `<meta name="apple-mobile-web-app-capable" content="yes">`
+    * `<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">`
+    * `<meta name="apple-mobile-web-app-title" content="MDCloud">`
+    * `<link rel="apple-touch-icon" href="./apple-touch-icon.png">`
+    * Safe area insets handled in CSS (`env(safe-area-inset-top)`, `env(safe-area-inset-bottom)`) so the iPhone notch/dynamic island and iPad home bar never obscure the editor or navigation.
+  * **iOS "Add to Home Screen" Assistance**:
+    * When viewed on iOS/iPadOS Safari in non-standalone mode, the app displays a lightweight helper badge or prompt: *"To install on iPad/iPhone: tap Share (⎋) > Add to Home Screen (➕)"*.
+  * On Mac/Desktop, it works seamlessly as a standard responsive web application in any modern browser (Chrome, Safari, Firefox, Edge) or can be installed as a Chrome/Edge PWA if desired.
 
 #### 3. Automated GitHub Actions Workflow (`.github/workflows/deploy.yml`)
 * Automatically builds and deploys to GitHub Pages on every push to `main`:
