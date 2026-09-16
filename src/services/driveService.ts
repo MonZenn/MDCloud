@@ -50,7 +50,7 @@ export class DriveService {
 
   public async updateFileText(fileId: string, content: string): Promise<DriveFileItem> {
     const res = await this.request(
-      `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`,
+      `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media&fields=id,name,mimeType,modifiedTime,size,parents`,
       {
         method: 'PATCH',
         headers: { 'Content-Type': 'text/markdown; charset=UTF-8' },
@@ -96,7 +96,7 @@ export class DriveService {
         : {};
 
     const res = await this.request(
-      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,modifiedTime,size,parents',
       {
         method: 'POST',
         headers,
@@ -107,7 +107,7 @@ export class DriveService {
   }
 
   public async createFolder(name: string, parentFolderId: string): Promise<DriveFileItem> {
-    const res = await this.request('https://www.googleapis.com/drive/v3/files', {
+    const res = await this.request('https://www.googleapis.com/drive/v3/files?fields=id,name,mimeType,modifiedTime,size,parents', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -120,7 +120,7 @@ export class DriveService {
   }
 
   public async renameItem(fileId: string, newName: string): Promise<DriveFileItem> {
-    const res = await this.request(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+    const res = await this.request(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,mimeType,modifiedTime,size,parents`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: newName }),

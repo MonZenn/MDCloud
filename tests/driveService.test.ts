@@ -132,7 +132,7 @@ describe('DriveService', () => {
       expect(global.fetch).toHaveBeenCalledTimes(1);
 
       const [calledUrl, calledOptions] = vi.mocked(global.fetch).mock.calls[0];
-      expect(calledUrl).toBe('https://www.googleapis.com/upload/drive/v3/files/file123?uploadType=media');
+      expect(calledUrl).toBe('https://www.googleapis.com/upload/drive/v3/files/file123?uploadType=media&fields=id,name,mimeType,modifiedTime,size,parents');
       expect(calledOptions?.method).toBe('PATCH');
       expect(calledOptions?.body).toBe('# Updated content');
 
@@ -168,7 +168,7 @@ describe('DriveService', () => {
       expect(global.fetch).toHaveBeenCalledTimes(1);
 
       const [calledUrl, calledOptions] = vi.mocked(global.fetch).mock.calls[0];
-      expect(calledUrl).toBe('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart');
+      expect(calledUrl).toBe('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,modifiedTime,size,parents');
       expect(calledOptions?.method).toBe('POST');
 
       const headers = new Headers(calledOptions?.headers);
@@ -218,7 +218,7 @@ describe('DriveService', () => {
       expect(global.fetch).toHaveBeenCalledTimes(1);
 
       const [calledUrl, calledOptions] = vi.mocked(global.fetch).mock.calls[0];
-      expect(calledUrl).toBe('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart');
+      expect(calledUrl).toBe('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,modifiedTime,size,parents');
       expect(calledOptions?.method).toBe('POST');
 
       const headers = new Headers(calledOptions?.headers);
@@ -253,7 +253,7 @@ describe('DriveService', () => {
       expect(global.fetch).toHaveBeenCalledTimes(1);
 
       const [calledUrl, calledOptions] = vi.mocked(global.fetch).mock.calls[0];
-      expect(calledUrl).toBe('https://www.googleapis.com/drive/v3/files');
+      expect(calledUrl).toBe('https://www.googleapis.com/drive/v3/files?fields=id,name,mimeType,modifiedTime,size,parents');
       expect(calledOptions?.method).toBe('POST');
       expect(JSON.parse(calledOptions?.body as string)).toEqual({
         name: 'Projects',
@@ -287,7 +287,7 @@ describe('DriveService', () => {
       expect(global.fetch).toHaveBeenCalledTimes(1);
 
       const [calledUrl, calledOptions] = vi.mocked(global.fetch).mock.calls[0];
-      expect(calledUrl).toBe('https://www.googleapis.com/drive/v3/files/item-123');
+      expect(calledUrl).toBe('https://www.googleapis.com/drive/v3/files/item-123?fields=id,name,mimeType,modifiedTime,size,parents');
       expect(calledOptions?.method).toBe('PATCH');
       expect(JSON.parse(calledOptions?.body as string)).toEqual({
         name: 'RenamedItem.md',
