@@ -1,4 +1,5 @@
 // Vitest setup file
+import '@testing-library/jest-dom/vitest';
 class LocalStorageMock implements Storage {
   private store: Record<string, string> = {};
 

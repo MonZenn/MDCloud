@@ -12,6 +12,7 @@
   "dependencies": {
     "clsx": "^2.1.1",
     "idb": "^8.0.0",
+    "katex": "^0.18.7",
     "lucide-react": "^0.475.0",
     "mermaid": "^11.4.1",
     "react": "^19.0.0",
@@ -25,6 +26,8 @@
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.16",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^22.20.3",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
