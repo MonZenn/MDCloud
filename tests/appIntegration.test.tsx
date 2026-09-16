@@ -507,4 +507,74 @@ describe('App Root Integration', () => {
       expect(within(sidebar).queryByText('Existing.md')).not.toBeInTheDocument();
     });
   });
+
+  it('guards against race conditions and resets content when switching notes rapidly', async () => {
+    saveConfig({
+      clientId: 'mock-client-id',
+      folderId: 'folder-root',
+      theme: 'dark'
+    });
+
+    vi.spyOn(GisAuthManager.prototype, 'getToken').mockReturnValue('valid-token');
+    const items = [
+      {
+        id: 'note-slow',
+        name: 'SlowNote.md',
+        mimeType: 'text/markdown',
+        modifiedTime: '2026-09-16T12:00:00Z',
+        parents: ['folder-root']
+      },
+      {
+        id: 'note-fast',
+        name: 'FastNote.md',
+        mimeType: 'text/markdown',
+        modifiedTime: '2026-09-16T12:00:00Z',
+        parents: ['folder-root']
+      }
+    ];
+
+    vi.spyOn(DriveService.prototype, 'listChildren').mockResolvedValue(items);
+
+    let resolveSlow: (val: string) => void;
+    const slowPromise = new Promise<string>((resolve) => {
+      resolveSlow = resolve;
+    });
+
+    vi.spyOn(DriveService.prototype, 'getFileText').mockImplementation(async (id) => {
+      if (id === 'note-slow') return slowPromise;
+      return '# Fast Note Content';
+    });
+
+    render(<App />);
+
+    const slowNote = await screen.findByText('SlowNote.md');
+    const fastNote = await screen.findByText('FastNote.md');
+
+    // Click slow note first
+    await act(async () => {
+      fireEvent.click(slowNote);
+    });
+
+    // Content should immediately be empty while slow note is fetching
+    const textarea = await screen.findByPlaceholderText('Write your markdown note here...');
+    expect(textarea).toHaveValue('');
+
+    // Quickly switch to fast note before slow note resolves
+    await act(async () => {
+      fireEvent.click(fastNote);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('# Fast Note Content')).toBeInTheDocument();
+    });
+
+    // Now slow note's promise resolves late
+    await act(async () => {
+      resolveSlow!('# Stale Slow Note Content');
+    });
+
+    // The fast note should STILL be displayed; slow note response must be discarded
+    expect(screen.getByDisplayValue('# Fast Note Content')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('# Stale Slow Note Content')).not.toBeInTheDocument();
+  });
 });

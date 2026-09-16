@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { loadConfig, saveConfig, AppConfig } from './services/configStore';
 import { GisAuthManager } from './services/gisAuth';
 import { DriveService } from './services/driveService';
@@ -23,6 +23,8 @@ export default function App() {
     parentId: null,
     children: []
   }));
+
+  const selectedNoteIdRef = useRef<string | null>(null);
 
   const auth = useMemo(() => new GisAuthManager(config?.clientId || ''), [config?.clientId]);
   const drive = useMemo(() => new DriveService(() => auth.getToken()), [auth]);
@@ -118,20 +120,22 @@ export default function App() {
     [activeNoteId, nodeMap, config?.folderId, db, drive]
   );
 
-  const handleSelectNote = async (noteId: string) => {
+  const handleSelectNote = async (noteId: string, noteName?: string, folderId?: string) => {
+    selectedNoteIdRef.current = noteId;
     setActiveNoteId(noteId);
     const cached = await db.getNote(noteId);
-    if (cached) {
-      setNoteContent(cached.content);
-    }
+    if (selectedNoteIdRef.current !== noteId) return;
+    setNoteContent(cached ? cached.content : '');
+
     try {
       const remote = await drive.getFileText(noteId);
+      if (selectedNoteIdRef.current !== noteId) return;
       setNoteContent(remote);
       const noteNode = nodeMap.get(noteId);
       await db.saveNote({
         fileId: noteId,
-        folderId: noteNode?.parentId || '',
-        name: noteNode?.name || 'Note.md',
+        folderId: folderId || noteNode?.parentId || '',
+        name: noteName || noteNode?.name || 'Note.md',
         content: remote,
         modifiedTime: new Date().toISOString(),
         isDirty: false
@@ -180,6 +184,7 @@ export default function App() {
   };
 
   const handleDisconnect = () => {
+    selectedNoteIdRef.current = null;
     auth.signOut();
     setIsAuthenticated(false);
     setTree({
@@ -268,7 +273,7 @@ export default function App() {
               isDirty: false
             });
             await loadTree();
-            handleSelectNote(file.id);
+            handleSelectNote(file.id, name, folderId);
           }}
           onCreateFolder={async (parentId, name) => {
             await drive.createFolder(name, parentId);
@@ -277,6 +282,7 @@ export default function App() {
           onDeleteItem={async (id) => {
             await drive.deleteItem(id);
             if (activeNoteId === id) {
+              selectedNoteIdRef.current = null;
               setActiveNoteId(null);
               setNoteContent('');
             }
@@ -288,6 +294,7 @@ export default function App() {
         <main className="flex-1 h-full overflow-hidden">
           {activeNote ? (
             <Workspace
+              key={activeNote.id}
               noteTitle={activeNote.name}
               initialContent={noteContent}
               currentFolderId={activeNote.parentId || 'root'}
