@@ -43,7 +43,7 @@ MDCloud is built from the ground up with a **privacy-first, zero-knowledge archi
    * Application type: **Web application**.
    * Name: `MDCloud Web Client`.
    * Under **Authorized JavaScript origins**, add:
-     * Your production GitHub Pages URL: `https://monzenn.github.io`
+     * Your production GitHub Pages URL: `https://monzenn.github.io` *(Must be all lowercase, without trailing slash)*
      * For local development: `http://localhost:5173`
    * Click **Create**.
    * Copy the **Client ID** (e.g. `xxxxxxxxxxxx-xxxxxxxxxxxxxxxx.apps.googleusercontent.com`). *Note: You do NOT need the Client Secret.*

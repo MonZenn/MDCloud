@@ -20,6 +20,15 @@ export function parseFolderId(input: string): string {
   return trimmed;
 }
 
+export function sanitizeClientId(input: string): string {
+  return input
+    .trim()
+    .replace(/[\u200B-\u200D\uFEFF]/g, '') // strip invisible zero-width spaces
+    .replace(/[\u2013\u2014]/g, '-') // convert iOS smart punctuation en-dash and em-dash to standard hyphen
+    .replace(/^["']|["']$/g, '') // strip wrapping quotes
+    .trim();
+}
+
 export function loadConfig(): AppConfig | null {
   try {
     const raw = localStorage.getItem(CONFIG_STORAGE_KEY);

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AppConfig, parseFolderId } from '../services/configStore';
+import { AppConfig, parseFolderId, sanitizeClientId } from '../services/configStore';
 import { Settings, X, KeyRound, FolderOpen } from 'lucide-react';
 
 export interface SettingsModalProps {
@@ -30,12 +30,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanClientId = clientId.trim();
+    const cleanClientId = sanitizeClientId(clientId);
     const cleanFolderInput = folderInput.trim();
     const folderId = parseFolderId(cleanFolderInput);
 
     if (!cleanClientId) {
       setError('Please enter your Google OAuth Client ID');
+      return;
+    }
+    if (cleanClientId.includes('@') && !cleanClientId.includes('.apps.googleusercontent.com')) {
+      setError('Please enter your Google OAuth Client ID (ending in .apps.googleusercontent.com), not your email address.');
       return;
     }
     if (!folderId) {
@@ -88,6 +92,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <input
               type="text"
               required
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               value={clientId}
               onChange={(e) => {
                 setClientId(e.target.value);
@@ -105,6 +112,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <input
               type="text"
               required
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               value={folderInput}
               onChange={(e) => {
                 setFolderInput(e.target.value);
