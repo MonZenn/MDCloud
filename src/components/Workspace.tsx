@@ -1,8 +1,17 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { SyncBadge, SyncStatus } from './SyncBadge';
-import { MarkdownViewer } from './MarkdownViewer';
+import { MarkdownViewer, AnnotationAction } from './MarkdownViewer';
 import { ImageLightbox } from './ImageLightbox';
 import { PromptModal } from './PromptModal';
+import {
+  addHighlightToMarkdown,
+  addCommentToMarkdown,
+  removeHighlightFromMarkdown,
+  updateCommentInMarkdown,
+  updateHighlightColorInMarkdown,
+  HighlightColor,
+} from '../services/markdownAnchorService';
+import { HIGHLIGHT_COLORS } from './PresenterAnnotationOverlay';
 import {
   ImagePlus,
   Columns,
@@ -14,7 +23,8 @@ import {
   Highlighter,
   MessageSquarePlus,
   Sigma,
-  Code
+  Code,
+  ChevronDown,
 } from 'lucide-react';
 
 export interface WorkspaceProps {
@@ -40,6 +50,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const [lightboxImage, setLightboxImage] = useState<{ url: string; alt?: string } | null>(null);
   const [isCommentModalOpen, setIsCommentModalOpen] = useState<boolean>(false);
   const [commentSelection, setCommentSelection] = useState<{ start: number; end: number; selected: string } | null>(null);
+  const [editorHighlightColor, setEditorHighlightColor] = useState<HighlightColor>('yellow');
+  const [isEditorColorPickerOpen, setIsEditorColorPickerOpen] = useState(false);
 
   const contentRef = useRef<string>(content);
   contentRef.current = content;
@@ -47,6 +59,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editorColorPickerRef = useRef<HTMLDivElement>(null);
   const pendingSaveRef = useRef<{ content: string; saveFn: (c: string) => Promise<void> } | null>(null);
 
   const flushPendingSave = useCallback(async () => {
@@ -86,36 +99,133 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     };
   }, []);
 
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newContent = e.target.value;
-    setContent(newContent);
-    contentRef.current = newContent;
-    setSyncStatus('saving');
-
-    pendingSaveRef.current = {
-      content: newContent,
-      saveFn: onSaveContent,
-    };
-
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-
-    saveTimeoutRef.current = setTimeout(async () => {
-      try {
-        const toSave = pendingSaveRef.current?.content || newContent;
-        const saveFn = pendingSaveRef.current?.saveFn || onSaveContent;
-        pendingSaveRef.current = null;
-        saveTimeoutRef.current = null;
-        await saveFn(toSave);
-        if (contentRef.current === toSave) {
-          setSyncStatus('synced');
-        }
-      } catch {
-        setSyncStatus('error');
+  useEffect(() => {
+    if (!isEditorColorPickerOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (editorColorPickerRef.current && !editorColorPickerRef.current.contains(e.target as Node)) {
+        setIsEditorColorPickerOpen(false);
       }
-    }, 1500);
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsEditorColorPickerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isEditorColorPickerOpen]);
+
+  const scheduleSave = useCallback(
+    (newContent: string) => {
+      setContent(newContent);
+      contentRef.current = newContent;
+      setSyncStatus('saving');
+
+      pendingSaveRef.current = {
+        content: newContent,
+        saveFn: onSaveContent,
+      };
+
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+
+      saveTimeoutRef.current = setTimeout(async () => {
+        try {
+          const toSave = pendingSaveRef.current?.content || newContent;
+          const saveFn = pendingSaveRef.current?.saveFn || onSaveContent;
+          pendingSaveRef.current = null;
+          saveTimeoutRef.current = null;
+          await saveFn(toSave);
+          if (contentRef.current === toSave) {
+            setSyncStatus('synced');
+          }
+        } catch {
+          setSyncStatus('error');
+        }
+      }, 1500);
+    },
+    [onSaveContent]
+  );
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    scheduleSave(e.target.value);
   };
+
+  const handleAnnotate = useCallback(
+    (action: AnnotationAction) => {
+      const current = contentRef.current;
+      let nextContent = current;
+
+      switch (action.type) {
+        case 'highlight':
+          nextContent = addHighlightToMarkdown(
+            current,
+            action.selectedText,
+            {
+              prefix: action.prefix,
+              suffix: action.suffix,
+            },
+            action.color
+          );
+          break;
+        case 'comment':
+          nextContent = addCommentToMarkdown(
+            current,
+            action.selectedText,
+            action.comment || '',
+            {
+              prefix: action.prefix,
+              suffix: action.suffix,
+            },
+            action.color
+          );
+          break;
+        case 'remove':
+          nextContent = removeHighlightFromMarkdown(current, action.selectedText, action.comment, {
+            prefix: action.prefix,
+            suffix: action.suffix,
+          });
+          break;
+        case 'updateComment':
+          nextContent = updateCommentInMarkdown(
+            current,
+            action.selectedText,
+            action.comment || '',
+            action.newComment || '',
+            {
+              prefix: action.prefix,
+              suffix: action.suffix,
+            }
+          );
+          break;
+        case 'updateColor':
+          nextContent = updateHighlightColorInMarkdown(
+            current,
+            action.selectedText,
+            action.newColor || 'yellow',
+            action.color,
+            action.comment,
+            {
+              prefix: action.prefix,
+              suffix: action.suffix,
+            }
+          );
+          break;
+      }
+
+      if (nextContent === current) {
+        return;
+      }
+
+      scheduleSave(nextContent);
+    },
+    [scheduleSave]
+  );
 
   const handleRetry = useCallback(async () => {
     if (saveTimeoutRef.current) {
@@ -144,10 +254,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     const selected = current.slice(start, end) || defaultPlaceholder;
     const updated = current.slice(0, start) + before + selected + after + current.slice(end);
 
-    setContent(updated);
-    contentRef.current = updated;
-
-    handleChange({ target: { value: updated } } as React.ChangeEvent<HTMLTextAreaElement>);
+    scheduleSave(updated);
 
     setTimeout(() => {
       textarea.focus();
@@ -172,14 +279,13 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
     const { start, end, selected } = commentSelection;
     const textToWrap = selected || 'commented text';
-    const before = `<mark data-comment="${commentText.replace(/"/g, '&quot;')}">`;
+    const colorAttr = editorHighlightColor && editorHighlightColor !== 'yellow' ? ` data-color="${editorHighlightColor}"` : '';
+    const before = `<mark${colorAttr} data-comment="${commentText.replace(/"/g, '&quot;')}">`;
     const after = `</mark>`;
     const current = contentRef.current;
     const updated = current.slice(0, start) + before + textToWrap + after + current.slice(end);
 
-    setContent(updated);
-    contentRef.current = updated;
-    handleChange({ target: { value: updated } } as React.ChangeEvent<HTMLTextAreaElement>);
+    scheduleSave(updated);
 
     setTimeout(() => {
       textarea.focus();
@@ -330,16 +436,65 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
               <div className="w-px h-4 bg-slate-800 mx-1 shrink-0" />
 
-              <button
-                type="button"
-                onClick={() => wrapSelection('<mark>', '</mark>', 'highlighted text')}
-                title="Highlight text (<mark>)"
-                aria-label="Highlight"
-                className="p-1.5 hover:text-amber-300 hover:bg-amber-500/10 rounded transition-colors flex items-center gap-1 text-xs"
-              >
-                <Highlighter size={13} className="text-amber-400" />
-                <span className="hidden sm:inline">Highlight</span>
-              </button>
+              <div className="relative inline-flex items-center" ref={editorColorPickerRef}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const colorAttr = editorHighlightColor && editorHighlightColor !== 'yellow' ? ` data-color="${editorHighlightColor}"` : '';
+                    wrapSelection(`<mark${colorAttr}>`, '</mark>', 'highlighted text');
+                  }}
+                  title="Highlight text (<mark>)"
+                  aria-label="Highlight"
+                  className="p-1.5 hover:text-amber-300 hover:bg-amber-500/10 rounded-l transition-colors flex items-center gap-1 text-xs"
+                >
+                  <Highlighter
+                    size={13}
+                    className={HIGHLIGHT_COLORS.find(c => c.id === editorHighlightColor)?.textClass || 'text-amber-400'}
+                  />
+                  <span className="hidden sm:inline">Highlight</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsEditorColorPickerOpen(prev => !prev)}
+                  title="Choose highlight color"
+                  aria-label="Choose editor highlight color"
+                  className="p-1 hover:text-amber-300 hover:bg-amber-500/10 rounded-r transition-colors flex items-center"
+                >
+                  <span
+                    className={`w-2.5 h-2.5 rounded-full ${
+                      HIGHLIGHT_COLORS.find(c => c.id === editorHighlightColor)?.dotClass || 'bg-amber-400'
+                    }`}
+                  />
+                  <ChevronDown size={11} className="text-slate-400 ml-0.5" />
+                </button>
+
+                {isEditorColorPickerOpen && (
+                  <div
+                    role="menu"
+                    className="absolute top-full left-0 mt-1 p-1.5 bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-50 flex flex-col gap-1 min-w-[120px]"
+                  >
+                    {HIGHLIGHT_COLORS.map(c => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => {
+                          setEditorHighlightColor(c.id);
+                          setIsEditorColorPickerOpen(false);
+                        }}
+                        aria-label={`Editor color ${c.id}`}
+                        className={`flex items-center gap-2 px-2 py-1 text-xs rounded transition-colors text-left ${
+                          editorHighlightColor === c.id
+                            ? 'bg-slate-800 text-slate-100 font-medium'
+                            : 'text-slate-300 hover:bg-slate-800/60'
+                        }`}
+                      >
+                        <span className={`w-3 h-3 rounded-full shrink-0 ${c.dotClass}`} />
+                        <span>{c.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={handleCommentClick}
@@ -408,6 +563,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
               currentFolderId={currentFolderId}
               resolveImageBlobUrl={resolveImageBlobUrl}
               onImageClick={(url, alt) => setLightboxImage({ url, alt })}
+              onAnnotate={handleAnnotate}
             />
           </div>
         )}
