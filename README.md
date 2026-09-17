@@ -62,6 +62,13 @@ MDCloud is built from the ground up with a **privacy-first, zero-knowledge archi
    * Click **Save & Connect**.
 3. Sign in with your Google Account when prompted. Your folder tree will load automatically.
 
+### 📱 Syncing to iPhone & iPad
+
+* Open **Settings** (gear icon) on your Mac and switch to the **Sync to Mobile** tab.
+* Open the **Camera app** on your iPhone or iPad and scan the generated **QR Code** (or tap **Copy Mobile Setup Link** to share via AirDrop/Notes).
+* Your device will open MDCloud and automatically configure your credentials with zero typing and zero copy-paste errors.
+* *Note:* Do **not** create a separate "iOS" Client ID in Google Cloud Console. MDCloud is a Web App (PWA) and uses the exact same **Web application** Client ID across all your devices.
+
 ---
 
 ## 💻 Local Development

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { loadConfig, saveConfig, AppConfig } from './services/configStore';
+import { loadConfig, saveConfig, parseSetupHash, AppConfig } from './services/configStore';
 import { GisAuthManager } from './services/gisAuth';
 import { DriveService } from './services/driveService';
 import { DbStore } from './services/dbStore';
@@ -201,10 +201,36 @@ export default function App() {
   }, [db, drive, nodeMap]);
 
   useEffect(() => {
+    const handleSetupHash = () => {
+      const hash = window.location.hash;
+      const setupConfig = parseSetupHash(hash);
+      if (setupConfig) {
+        const newConfig: AppConfig = {
+          clientId: setupConfig.clientId,
+          folderId: setupConfig.folderId,
+          theme: 'dark',
+        };
+        saveConfig(newConfig);
+        setConfig(newConfig);
+        setIsSettingsOpen(false);
+        if (window.history?.replaceState) {
+          window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        } else {
+          window.location.hash = '';
+        }
+      }
+    };
+
+    handleSetupHash();
+    window.addEventListener('hashchange', handleSetupHash);
+    return () => window.removeEventListener('hashchange', handleSetupHash);
+  }, []);
+
+  useEffect(() => {
     const handleHashChange = () => {
       if (!isAuthenticated) return;
       const hash = window.location.hash.replace(/^#\//, '');
-      if (hash) {
+      if (hash && !hash.startsWith('setup?')) {
         const parts = hash.split('/');
         const noteId = parts.length === 2 ? parts[1] : parts[0];
         const folderId = parts.length === 2 ? parts[0] : undefined;

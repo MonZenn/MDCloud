@@ -21,3 +21,4 @@ donotpush*
 # Excluded from repository
 tests
 docs
+*error*.png
