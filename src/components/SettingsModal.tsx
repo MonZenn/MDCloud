@@ -11,6 +11,7 @@ import { Settings, X, KeyRound, FolderOpen, QrCode, Copy, Check, Info, Smartphon
 
 export interface SettingsModalProps {
   isOpen: boolean;
+  initialTab?: 'credentials' | 'sync';
   currentConfig: AppConfig | null;
   onSaveConfig: (config: AppConfig) => void;
   onClose: () => void;
@@ -18,16 +19,23 @@ export interface SettingsModalProps {
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
+  initialTab = 'credentials',
   currentConfig,
   onSaveConfig,
   onClose,
 }) => {
-  const [activeTab, setActiveTab] = useState<'credentials' | 'sync'>('credentials');
+  const [activeTab, setActiveTab] = useState<'credentials' | 'sync'>(initialTab);
   const [clientId, setClientId] = useState('');
   const [folderInput, setFolderInput] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [qrSvg, setQrSvg] = useState<string>('');
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab(initialTab);
+    }
+  }, [isOpen, initialTab]);
 
   useEffect(() => {
     if (currentConfig) {

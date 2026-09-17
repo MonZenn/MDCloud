@@ -9,11 +9,12 @@ import { Workspace } from './components/Workspace';
 import { SettingsModal } from './components/SettingsModal';
 import { UploadProgressModal } from './components/UploadProgressModal';
 import { IosInstallBanner } from './components/IosInstallBanner';
-import { Menu, Settings as SettingsIcon, LogIn, LogOut, Cloud } from 'lucide-react';
+import { Menu, Settings as SettingsIcon, LogIn, LogOut, Cloud, QrCode } from 'lucide-react';
 
 export default function App() {
   const [config, setConfig] = useState<AppConfig | null>(() => loadConfig());
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(!config);
+  const [settingsTab, setSettingsTab] = useState<'credentials' | 'sync'>('credentials');
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   const [noteContent, setNoteContent] = useState<string>('');
@@ -479,9 +480,27 @@ export default function App() {
               <LogIn size={14} /> Sign in with Google
             </button>
           )}
+          {config && (
+            <button
+              type="button"
+              onClick={() => {
+                setSettingsTab('sync');
+                setIsSettingsOpen(true);
+              }}
+              className="px-2.5 py-1 text-indigo-300 hover:text-white bg-indigo-950/60 hover:bg-indigo-900/80 border border-indigo-800/80 rounded text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Sync to iPhone & iPad (QR Code)"
+              aria-label="Sync to Mobile"
+            >
+              <QrCode size={14} className="text-indigo-400" />
+              <span className="hidden sm:inline">Sync to Mobile</span>
+            </button>
+          )}
           <button
             type="button"
-            onClick={() => setIsSettingsOpen(true)}
+            onClick={() => {
+              setSettingsTab('credentials');
+              setIsSettingsOpen(true);
+            }}
             className="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition-colors cursor-pointer"
             title="Settings"
             aria-label="Settings"
@@ -564,6 +583,7 @@ export default function App() {
 
       <SettingsModal
         isOpen={isSettingsOpen}
+        initialTab={settingsTab}
         currentConfig={config}
         onSaveConfig={(newConfig) => {
           saveConfig(newConfig);
