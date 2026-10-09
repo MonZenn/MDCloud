@@ -4,7 +4,7 @@ import { GisAuthManager } from './services/gisAuth';
 import { DriveService } from './services/driveService';
 import { DbStore } from './services/dbStore';
 import { resolveRelativePath, VirtualNode } from './services/pathResolver';
-import { Sidebar, UploadItem } from './components/Sidebar';
+import { Sidebar, UploadItem, sortTreeNodes } from './components/Sidebar';
 import { Workspace } from './components/Workspace';
 import { SettingsModal } from './components/SettingsModal';
 import { UploadProgressModal } from './components/UploadProgressModal';
@@ -68,7 +68,7 @@ export default function App() {
       const fetchChildren = async (folderId: string, depth = 0): Promise<VirtualNode[]> => {
         if (depth >= 8) return [];
         const items = await drive.listChildren(folderId);
-        return Promise.all(
+        const mapped = await Promise.all(
           items.map(async (f) => {
             const isFolder = f.mimeType === 'application/vnd.google-apps.folder';
             let children: VirtualNode[] | undefined;
@@ -84,10 +84,11 @@ export default function App() {
               name: f.name,
               isFolder,
               parentId: folderId,
-              children
+              children: children ? sortTreeNodes(children) : undefined
             };
           })
         );
+        return sortTreeNodes(mapped);
       };
 
       const children = await fetchChildren(config.folderId);
@@ -96,7 +97,7 @@ export default function App() {
         name: 'My Notes',
         isFolder: true,
         parentId: null,
-        children
+        children: sortTreeNodes(children)
       };
       setTree(rootNode);
     } catch (err) {
@@ -230,7 +231,11 @@ export default function App() {
   useEffect(() => {
     const handleHashChange = () => {
       if (!isAuthenticated) return;
-      const hash = window.location.hash.replace(/^#\//, '');
+      const rawHash = window.location.hash;
+      if (!rawHash.startsWith('#/')) {
+        return;
+      }
+      const hash = rawHash.replace(/^#\//, '');
       if (hash && !hash.startsWith('setup?')) {
         const parts = hash.split('/');
         const noteId = parts.length === 2 ? parts[1] : parts[0];

@@ -61,13 +61,40 @@ export interface TreeNodeItemProps {
 }
 
 /**
+ * Natural comparison for sorting strings alphabetically and numerically.
+ */
+export function compareNatural(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+}
+
+/**
+ * Sort VirtualNodes with folders first, and then alphabetical and numerical (natural) order by name.
+ */
+export function sortTreeNodes(nodes: VirtualNode[]): VirtualNode[] {
+  return [...nodes].sort((a, b) => {
+    if (a.isFolder !== b.isFolder) {
+      return a.isFolder ? -1 : 1;
+    }
+    return compareNatural(a.name, b.name);
+  });
+}
+
+/**
  * Filter a VirtualNode tree based on a search query string.
  * Retains nodes whose names match case-insensitively, or folders that
  * contain matching descendants.
  */
 export function filterTree(node: VirtualNode, query: string): VirtualNode | null {
   const cleanQuery = query.trim().toLowerCase();
-  if (!cleanQuery) return node;
+  if (!cleanQuery) {
+    if (node.children) {
+      return {
+        ...node,
+        children: sortTreeNodes(node.children),
+      };
+    }
+    return node;
+  }
 
   if (!node.isFolder) {
     return node.name.toLowerCase().includes(cleanQuery) ? node : null;
@@ -75,7 +102,10 @@ export function filterTree(node: VirtualNode, query: string): VirtualNode | null
 
   // If a non-root folder matches the query, include the folder and all its contents
   if (node.parentId !== null && node.name.toLowerCase().includes(cleanQuery)) {
-    return node;
+    return {
+      ...node,
+      children: node.children ? sortTreeNodes(node.children) : undefined,
+    };
   }
 
   const filteredChildren = (node.children || [])
@@ -85,7 +115,7 @@ export function filterTree(node: VirtualNode, query: string): VirtualNode | null
   if (filteredChildren.length > 0) {
     return {
       ...node,
-      children: filteredChildren,
+      children: sortTreeNodes(filteredChildren),
     };
   }
 
@@ -296,7 +326,7 @@ export const TreeNodeItem: React.FC<TreeNodeItemProps> = ({
       </div>
       {isExpanded && node.children && node.children.length > 0 && (
         <div className="flex flex-col">
-          {node.children.map((child) => (
+          {sortTreeNodes(node.children).map((child) => (
             <TreeNodeItem
               key={child.id}
               node={child}

@@ -23,6 +23,7 @@ export const HIGHLIGHT_COLORS: ColorOption[] = [
 export interface SelectionToolbarPosition {
   x: number;
   y: number;
+  placement?: 'top' | 'bottom';
 }
 
 export interface PresenterAnnotationOverlayProps {
@@ -143,10 +144,17 @@ export const PresenterAnnotationOverlay: React.FC<PresenterAnnotationOverlayProp
       {selectionPosition && selectionText && (
         <div
           data-testid="selection-toolbar"
-          className="fixed z-50 transform -translate-x-1/2 -translate-y-full mb-2.5 transition-all duration-150 animate-in fade-in zoom-in-95"
+          className={`fixed z-50 transform -translate-x-1/2 transition-all duration-150 animate-in fade-in zoom-in-95 ${
+            selectionPosition.placement === 'bottom' ? 'mt-2' : '-translate-y-full mb-2.5'
+          }`}
           style={{
             left: `${selectionPosition.x}px`,
             top: `${selectionPosition.y}px`,
+          }}
+          onMouseDown={(e) => {
+            if ((e.target as HTMLElement).tagName !== 'INPUT') {
+              e.preventDefault();
+            }
           }}
         >
           {!isCommenting ? (
@@ -249,7 +257,9 @@ export const PresenterAnnotationOverlay: React.FC<PresenterAnnotationOverlayProp
       {activeHighlight && (
         <div
           data-testid="highlight-manage-popover"
-          className="fixed z-50 transform -translate-x-1/2 -translate-y-full mb-2 transition-all duration-150 animate-in fade-in zoom-in-95"
+          className={`fixed z-50 transform -translate-x-1/2 transition-all duration-150 animate-in fade-in zoom-in-95 ${
+            activeHighlight.position.placement === 'bottom' ? 'mt-2' : '-translate-y-full mb-2'
+          }`}
           style={{
             left: `${activeHighlight.position.x}px`,
             top: `${activeHighlight.position.y}px`,

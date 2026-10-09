@@ -53,34 +53,107 @@ function scoreMatch(
   return score;
 }
 
-function findBestOccurrenceIndex(
+export function normalizeText(str: string): string {
+  return str
+    .replace(/\u00A0/g, ' ')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"');
+}
+
+export interface MatchedOccurrence {
+  index: number;
+  length: number;
+  matchedText: string;
+}
+
+export function findOccurrence(
+  content: string,
+  target: string,
+  context?: AnchorContext
+): MatchedOccurrence | null {
+  if (!content || !target) return null;
+
+  const normalizedTarget = normalizeText(target).trim();
+  if (!normalizedTarget) return null;
+
+  // 1. Direct search with original target
+  const directIndices: number[] = [];
+  let idx = content.indexOf(target);
+  while (idx !== -1) {
+    directIndices.push(idx);
+    idx = content.indexOf(target, idx + 1);
+  }
+
+  // 2. Direct search with normalized target if different
+  if (directIndices.length === 0 && normalizedTarget !== target) {
+    let normIdx = content.indexOf(normalizedTarget);
+    while (normIdx !== -1) {
+      directIndices.push(normIdx);
+      normIdx = content.indexOf(normalizedTarget, normIdx + 1);
+    }
+  }
+
+  if (directIndices.length > 0) {
+    let bestIndex = directIndices[0];
+    let highestScore = -1;
+    for (const matchIdx of directIndices) {
+      const currentScore = scoreMatch(content, matchIdx, normalizedTarget.length, context?.prefix, context?.suffix);
+      if (currentScore > highestScore) {
+        highestScore = currentScore;
+        bestIndex = matchIdx;
+      }
+    }
+    const matchedText = content.slice(bestIndex, bestIndex + normalizedTarget.length);
+    return {
+      index: bestIndex,
+      length: normalizedTarget.length,
+      matchedText,
+    };
+  }
+
+  // 3. Flexible regex matching: handles newlines, extra spaces, and inline markdown styling
+  const tokens = normalizedTarget.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return null;
+
+  const pattern = tokens.map(escapeRegex).join('(?:\\s+|\\s*[*_~`]+\\s*)');
+  let regex = new RegExp(pattern, 'g');
+  let matches = Array.from(content.matchAll(regex));
+
+  if (matches.length === 0) {
+    // Try case-insensitive fallback
+    regex = new RegExp(pattern, 'gi');
+    matches = Array.from(content.matchAll(regex));
+  }
+
+  if (matches.length === 0) return null;
+
+  let bestMatch = matches[0];
+  let highestScore = -1;
+
+  for (const m of matches) {
+    const matchIdx = m.index ?? 0;
+    const matchLen = m[0].length;
+    const currentScore = scoreMatch(content, matchIdx, matchLen, context?.prefix, context?.suffix);
+    if (currentScore > highestScore) {
+      highestScore = currentScore;
+      bestMatch = m;
+    }
+  }
+
+  return {
+    index: bestMatch.index ?? 0,
+    length: bestMatch[0].length,
+    matchedText: bestMatch[0],
+  };
+}
+
+export function findBestOccurrenceIndex(
   content: string,
   target: string,
   context?: AnchorContext
 ): number {
-  if (!content || !target) return -1;
-  const indices: number[] = [];
-  let idx = content.indexOf(target);
-  while (idx !== -1) {
-    indices.push(idx);
-    idx = content.indexOf(target, idx + 1);
-  }
-
-  if (indices.length === 0) return -1;
-  if (indices.length === 1 || (!context?.prefix && !context?.suffix)) return indices[0];
-
-  let bestIndex = indices[0];
-  let highestScore = -1;
-
-  for (const matchIdx of indices) {
-    const currentScore = scoreMatch(content, matchIdx, target.length, context?.prefix, context?.suffix);
-    if (currentScore > highestScore) {
-      highestScore = currentScore;
-      bestIndex = matchIdx;
-    }
-  }
-
-  return bestIndex;
+  const occ = findOccurrence(content, target, context);
+  return occ ? occ.index : -1;
 }
 
 export type HighlightColor = 'yellow' | 'red' | 'green' | 'blue' | 'orange' | 'pink' | 'purple';
@@ -94,12 +167,12 @@ export function addHighlightToMarkdown(
   const trimmed = selectedText.trim();
   if (!trimmed) return content;
 
-  const targetIndex = findBestOccurrenceIndex(content, trimmed, context);
-  if (targetIndex === -1) return content;
+  const occ = findOccurrence(content, trimmed, context);
+  if (!occ) return content;
 
   const colorAttr = color && color !== 'yellow' ? ` data-color="${escapeHtmlAttr(color)}"` : '';
-  const replacement = `<mark${colorAttr}>${trimmed}</mark>`;
-  return content.slice(0, targetIndex) + replacement + content.slice(targetIndex + trimmed.length);
+  const replacement = `<mark${colorAttr}>${occ.matchedText}</mark>`;
+  return content.slice(0, occ.index) + replacement + content.slice(occ.index + occ.length);
 }
 
 export function addCommentToMarkdown(
@@ -112,13 +185,22 @@ export function addCommentToMarkdown(
   const trimmedText = selectedText.trim();
   if (!trimmedText) return content;
 
-  const targetIndex = findBestOccurrenceIndex(content, trimmedText, context);
-  if (targetIndex === -1) return content;
+  const occ = findOccurrence(content, trimmedText, context);
+  if (!occ) return content;
 
   const sanitized = escapeHtmlAttr(comment.trim());
   const colorAttr = color && color !== 'yellow' ? ` data-color="${escapeHtmlAttr(color)}"` : '';
-  const replacement = `<mark${colorAttr} data-comment="${sanitized}">${trimmedText}</mark>`;
-  return content.slice(0, targetIndex) + replacement + content.slice(targetIndex + trimmedText.length);
+  const replacement = `<mark${colorAttr} data-comment="${sanitized}">${occ.matchedText}</mark>`;
+  return content.slice(0, occ.index) + replacement + content.slice(occ.index + occ.length);
+}
+
+function makeInnerPattern(text: string): string {
+  const norm = normalizeText(text).trim();
+  const tokens = norm.split(/\s+/).filter(Boolean);
+  const tokenPattern = tokens.length > 0 ? tokens.map(escapeRegex).join('(?:\\s+|\\s*[*_~`]+\\s*)') : escapeRegex(norm);
+  const escapedOrig = escapeRegex(text.trim());
+  const body = escapedOrig === tokenPattern ? tokenPattern : `(?:${tokenPattern}|${escapedOrig})`;
+  return `(?:\\*\\*|__)?${body}(?:\\*\\*|__)?`;
 }
 
 export function removeHighlightFromMarkdown(
@@ -130,7 +212,7 @@ export function removeHighlightFromMarkdown(
   const trimmedText = selectedText.trim();
   if (!trimmedText) return content;
 
-  const innerPattern = `(?:\\*\\*|__)?${escapeRegex(trimmedText)}(?:\\*\\*|__)?`;
+  const innerPattern = makeInnerPattern(trimmedText);
   let candidateMatches: RegExpExecArray[] = [];
 
   if (comment !== undefined && comment.trim() !== '') {
@@ -185,7 +267,7 @@ export function updateCommentInMarkdown(
   const trimmedText = selectedText.trim();
   if (!trimmedText) return content;
 
-  const innerPattern = `(?:\\*\\*|__)?${escapeRegex(trimmedText)}(?:\\*\\*|__)?`;
+  const innerPattern = makeInnerPattern(trimmedText);
   let targetMatches: RegExpExecArray[] = [];
 
   if (oldComment && oldComment.trim() !== '') {
@@ -243,7 +325,7 @@ export function updateHighlightColorInMarkdown(
   const trimmedText = selectedText.trim();
   if (!trimmedText) return content;
 
-  const innerPattern = `(?:\\*\\*|__)?${escapeRegex(trimmedText)}(?:\\*\\*|__)?`;
+  const innerPattern = makeInnerPattern(trimmedText);
   let candidateMatches: RegExpExecArray[] = [];
 
   if (oldColor) {

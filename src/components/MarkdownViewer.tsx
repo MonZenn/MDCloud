@@ -82,6 +82,15 @@ const customUrlTransform = (url: string): string => {
   return defaultUrlTransform(url);
 };
 
+export function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\p{L}\p{N}\s-]/gu, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-');
+}
+
 function getNodeText(node: React.ReactNode): string {
   if (node === null || node === undefined || typeof node === 'boolean') {
     return '';
@@ -361,10 +370,34 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
     const range = sel.getRangeAt(0);
 
     const rect = range.getBoundingClientRect ? range.getBoundingClientRect() : null;
-    const isZeroRect = !rect || (rect.width === 0 && rect.height === 0);
-    const position: SelectionToolbarPosition = isZeroRect
-      ? { x: 100, y: 100 }
-      : { x: rect.left + rect.width / 2, y: rect.top };
+    let position: SelectionToolbarPosition;
+    if (!rect || (rect.width === 0 && rect.height === 0)) {
+      const rects = range.getClientRects ? range.getClientRects() : null;
+      if (rects && rects.length > 0) {
+        const firstRect = rects[0];
+        const isNearTop = firstRect.top < 70;
+        const clampedX = typeof window !== 'undefined'
+          ? Math.max(140, Math.min(window.innerWidth - 140, firstRect.left + firstRect.width / 2))
+          : firstRect.left + firstRect.width / 2;
+        position = {
+          x: clampedX,
+          y: isNearTop ? firstRect.bottom + 8 : firstRect.top,
+          placement: isNearTop ? 'bottom' : 'top',
+        };
+      } else {
+        position = { x: 100, y: 100, placement: 'top' };
+      }
+    } else {
+      const isNearTop = rect.top < 70;
+      const clampedX = typeof window !== 'undefined'
+        ? Math.max(140, Math.min(window.innerWidth - 140, rect.left + rect.width / 2))
+        : rect.left + rect.width / 2;
+      position = {
+        x: clampedX,
+        y: isNearTop ? rect.bottom + 8 : rect.top,
+        placement: isNearTop ? 'bottom' : 'top',
+      };
+    }
 
     const { prefix, suffix } = extractContextFromRange(range);
 
@@ -376,6 +409,32 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
       suffix: suffix || undefined,
     });
   }, [onAnnotate]);
+
+  // Listen to document selectionchange for mobile selection handles and text selection
+  useEffect(() => {
+    if (!onAnnotate) return;
+
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const handleDocSelectionChange = () => {
+      const activeEl = document.activeElement;
+      if (
+        activeEl &&
+        (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable)
+      ) {
+        return;
+      }
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        handleSelectionCheck();
+      }, 50);
+    };
+
+    document.addEventListener('selectionchange', handleDocSelectionChange);
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      document.removeEventListener('selectionchange', handleDocSelectionChange);
+    };
+  }, [onAnnotate, handleSelectionCheck]);
 
   const touchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -429,7 +488,7 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
     if (touchTimeoutRef.current) {
       clearTimeout(touchTimeoutRef.current);
     }
-    touchTimeoutRef.current = setTimeout(handleSelectionCheck, 10);
+    touchTimeoutRef.current = setTimeout(handleSelectionCheck, 60);
   };
 
   const handleHighlight = useCallback((color?: HighlightColor) => {
@@ -524,9 +583,17 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
 
       const rect = e.currentTarget.getBoundingClientRect();
       const isZeroRect = !rect || (rect.width === 0 && rect.height === 0);
+      const isNearTop = rect && rect.top < 70;
+      const clampedX = typeof window !== 'undefined'
+        ? Math.max(140, Math.min(window.innerWidth - 140, isZeroRect ? 100 : rect.left + rect.width / 2))
+        : (isZeroRect ? 100 : rect.left + rect.width / 2);
       const position: SelectionToolbarPosition = isZeroRect
-        ? { x: 100, y: 100 }
-        : { x: rect.left + rect.width / 2, y: rect.top };
+        ? { x: 100, y: 100, placement: 'top' }
+        : {
+            x: clampedX,
+            y: isNearTop ? rect.bottom + 8 : rect.top,
+            placement: isNearTop ? 'bottom' : 'top',
+          };
 
       const { prefix, suffix } = extractContextFromElement(e.currentTarget);
 
@@ -542,6 +609,73 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
     [onAnnotate, handleDismissSelection]
   );
 
+  const jumpToAnchor = useCallback((rawTarget: string) => {
+    if (!containerRef.current || !rawTarget) return;
+    const targetId = rawTarget.replace(/^#/, '');
+    if (!targetId) return;
+
+    let targetElement: HTMLElement | null = null;
+    let decoded = targetId;
+    try {
+      decoded = decodeURIComponent(targetId);
+    } catch {
+      // ignore decoding error
+    }
+
+    try {
+      targetElement = containerRef.current.querySelector<HTMLElement>(
+        `[id="${CSS.escape(targetId)}"], [name="${CSS.escape(targetId)}"], [id="${CSS.escape(decoded)}"], [name="${CSS.escape(decoded)}"]`
+      );
+    } catch {
+      // CSS escape fallback
+    }
+
+    if (!targetElement) {
+      const slug = slugify(decoded);
+      if (slug) {
+        try {
+          targetElement = containerRef.current.querySelector<HTMLElement>(
+            `[id="${CSS.escape(slug)}"], [name="${CSS.escape(slug)}"]`
+          );
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    if (!targetElement) {
+      const candidates = containerRef.current.querySelectorAll<HTMLElement>(
+        'h1, h2, h3, h4, h5, h6, [id], [name]'
+      );
+      const targetSlug = slugify(decoded);
+      for (let i = 0; i < candidates.length; i++) {
+        const el = candidates[i];
+        const elId = el.getAttribute('id') || el.getAttribute('name') || '';
+        const elText = el.textContent || '';
+        if (
+          (elId && (elId.toLowerCase() === targetId.toLowerCase() || elId.toLowerCase() === decoded.toLowerCase())) ||
+          (targetSlug && (slugify(elId) === targetSlug || slugify(elText) === targetSlug))
+        ) {
+          targetElement = el;
+          break;
+        }
+      }
+    }
+
+    if (targetElement) {
+      targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, []);
+
+  const handleContainerClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const targetAnchor = (e.target as HTMLElement)?.closest<HTMLAnchorElement>('a[href^="#"]');
+    if (targetAnchor && containerRef.current?.contains(targetAnchor)) {
+      e.preventDefault();
+      const href = targetAnchor.getAttribute('href') || '';
+      jumpToAnchor(href);
+    }
+  }, [jumpToAnchor]);
+
   // Pre-process ==highlight== syntax into <mark> tags
   const processedContent = useMemo(() => {
     if (!content) return '';
@@ -550,6 +684,57 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
 
   const components = useMemo(
     () => ({
+      h1({ node: _node, children, id, ...props }: any) {
+        const text = getNodeText(children);
+        const headingId = id || slugify(text);
+        return <h1 id={headingId} className="scroll-mt-6" {...props}>{children}</h1>;
+      },
+      h2({ node: _node, children, id, ...props }: any) {
+        const text = getNodeText(children);
+        const headingId = id || slugify(text);
+        return <h2 id={headingId} className="scroll-mt-6" {...props}>{children}</h2>;
+      },
+      h3({ node: _node, children, id, ...props }: any) {
+        const text = getNodeText(children);
+        const headingId = id || slugify(text);
+        return <h3 id={headingId} className="scroll-mt-6" {...props}>{children}</h3>;
+      },
+      h4({ node: _node, children, id, ...props }: any) {
+        const text = getNodeText(children);
+        const headingId = id || slugify(text);
+        return <h4 id={headingId} className="scroll-mt-6" {...props}>{children}</h4>;
+      },
+      h5({ node: _node, children, id, ...props }: any) {
+        const text = getNodeText(children);
+        const headingId = id || slugify(text);
+        return <h5 id={headingId} className="scroll-mt-6" {...props}>{children}</h5>;
+      },
+      h6({ node: _node, children, id, ...props }: any) {
+        const text = getNodeText(children);
+        const headingId = id || slugify(text);
+        return <h6 id={headingId} className="scroll-mt-6" {...props}>{children}</h6>;
+      },
+      a({ node: _node, href, children, ...props }: any) {
+        const isAnchor = Boolean(href && href.startsWith('#'));
+        return (
+          <a
+            href={href}
+            onClick={
+              isAnchor
+                ? (e) => {
+                    e.preventDefault();
+                    jumpToAnchor(href);
+                  }
+                : undefined
+            }
+            target={isAnchor ? undefined : '_blank'}
+            rel={isAnchor ? undefined : 'noopener noreferrer'}
+            {...props}
+          >
+            {children}
+          </a>
+        );
+      },
       code({ node: _node, className, children, ...props }: any) {
         const match = /language-(\w+)/.exec(className || '');
         if (match && match[1] === 'mermaid') {
@@ -602,12 +787,13 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
         );
       },
     }),
-    [stableResolve, stableClick, onAnnotate, handleMarkClick]
+    [stableResolve, stableClick, onAnnotate, handleMarkClick, jumpToAnchor]
   );
 
   return (
     <div
       ref={containerRef}
+      onClick={handleContainerClick}
       onMouseUp={handleMouseUp}
       onTouchEnd={handleTouchEnd}
       className="relative prose prose-invert max-w-none prose-pre:bg-slate-950 prose-pre:border prose-pre:border-slate-800 prose-img:rounded-lg"
