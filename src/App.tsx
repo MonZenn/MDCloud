@@ -4,7 +4,7 @@ import { GisAuthManager } from './services/gisAuth';
 import { DriveService } from './services/driveService';
 import { DbStore } from './services/dbStore';
 import { resolveRelativePath, VirtualNode } from './services/pathResolver';
-import { Sidebar, UploadItem, sortTreeNodes } from './components/Sidebar';
+import { Sidebar, UploadItem, sortTreeNodes, sortTreeDeep } from './components/Sidebar';
 import { Workspace } from './components/Workspace';
 import { SettingsModal } from './components/SettingsModal';
 import { UploadProgressModal } from './components/UploadProgressModal';
@@ -92,13 +92,13 @@ export default function App() {
       };
 
       const children = await fetchChildren(config.folderId);
-      const rootNode: VirtualNode = {
+      const rootNode: VirtualNode = sortTreeDeep({
         id: config.folderId,
         name: 'My Notes',
         isFolder: true,
         parentId: null,
         children: sortTreeNodes(children)
-      };
+      });
       setTree(rootNode);
     } catch (err) {
       console.error('Failed to load drive tree', err);

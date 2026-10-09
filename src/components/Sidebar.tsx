@@ -80,32 +80,38 @@ export function sortTreeNodes(nodes: VirtualNode[]): VirtualNode[] {
 }
 
 /**
+ * Recursively sort a VirtualNode and all its descendants deeply (folders first, then natural alphabetical and numerical order).
+ */
+export function sortTreeDeep(node: VirtualNode): VirtualNode {
+  if (!node.children || node.children.length === 0) {
+    return node;
+  }
+  const sortedChildren = sortTreeNodes(node.children).map(sortTreeDeep);
+  return {
+    ...node,
+    children: sortedChildren,
+  };
+}
+
+/**
  * Filter a VirtualNode tree based on a search query string.
  * Retains nodes whose names match case-insensitively, or folders that
  * contain matching descendants.
+ * Ensures all returned trees have their folders and files sorted naturally at every level.
  */
 export function filterTree(node: VirtualNode, query: string): VirtualNode | null {
   const cleanQuery = query.trim().toLowerCase();
   if (!cleanQuery) {
-    if (node.children) {
-      return {
-        ...node,
-        children: sortTreeNodes(node.children),
-      };
-    }
-    return node;
+    return sortTreeDeep(node);
   }
 
   if (!node.isFolder) {
     return node.name.toLowerCase().includes(cleanQuery) ? node : null;
   }
 
-  // If a non-root folder matches the query, include the folder and all its contents
+  // If a non-root folder matches the query, include the folder and all its contents deeply sorted
   if (node.parentId !== null && node.name.toLowerCase().includes(cleanQuery)) {
-    return {
-      ...node,
-      children: node.children ? sortTreeNodes(node.children) : undefined,
-    };
+    return sortTreeDeep(node);
   }
 
   const filteredChildren = (node.children || [])

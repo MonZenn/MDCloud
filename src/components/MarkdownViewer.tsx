@@ -663,7 +663,20 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
     }
 
     if (targetElement) {
-      targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      try {
+        targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch {
+        targetElement.scrollIntoView();
+      }
+
+      // Also ensure scrolling happens if inside an overflow-y-auto container (e.g. mobile workspace view)
+      const scrollParent = targetElement.closest('.overflow-y-auto') as HTMLElement | null;
+      if (scrollParent && scrollParent !== targetElement) {
+        const parentRect = scrollParent.getBoundingClientRect();
+        const elRect = targetElement.getBoundingClientRect();
+        const offset = elRect.top - parentRect.top + scrollParent.scrollTop - 12;
+        scrollParent.scrollTo({ top: offset, behavior: 'smooth' });
+      }
     }
   }, []);
 

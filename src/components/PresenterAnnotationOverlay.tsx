@@ -156,12 +156,18 @@ export const PresenterAnnotationOverlay: React.FC<PresenterAnnotationOverlayProp
               e.preventDefault();
             }
           }}
+          onPointerDown={(e) => {
+            if ((e.target as HTMLElement).tagName !== 'INPUT') {
+              e.preventDefault();
+            }
+          }}
         >
           {!isCommenting ? (
-            <div className="flex flex-col items-center">
+            <div className="flex flex-col items-center select-none touch-manipulation">
               <div className="flex items-center gap-1 bg-slate-900/95 backdrop-blur-md border border-slate-700/80 shadow-2xl rounded-lg p-1 text-slate-200">
                 <button
                   type="button"
+                  onPointerDown={(e) => e.preventDefault()}
                   onClick={() => onHighlight(selectedColor)}
                   className={`px-2.5 py-1.5 hover:bg-slate-800 ${activeColorOption.textClass} rounded text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer`}
                   title={`Highlight text (${activeColorOption.label})`}
@@ -172,6 +178,7 @@ export const PresenterAnnotationOverlay: React.FC<PresenterAnnotationOverlayProp
                 </button>
                 <button
                   type="button"
+                  onPointerDown={(e) => e.preventDefault()}
                   onClick={() => setIsColorPickerOpen(!isColorPickerOpen)}
                   className="p-1.5 hover:bg-slate-800 rounded flex items-center gap-1 cursor-pointer transition-colors"
                   title="Choose color"
@@ -182,6 +189,7 @@ export const PresenterAnnotationOverlay: React.FC<PresenterAnnotationOverlayProp
                 <div className="w-px h-4 bg-slate-700 mx-0.5" />
                 <button
                   type="button"
+                  onPointerDown={(e) => e.preventDefault()}
                   onClick={() => setIsCommenting(true)}
                   className="px-2.5 py-1.5 hover:bg-indigo-500/20 text-indigo-300 hover:text-indigo-200 rounded text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
                   title="Add comment"
@@ -198,6 +206,7 @@ export const PresenterAnnotationOverlay: React.FC<PresenterAnnotationOverlayProp
                     <button
                       key={c.id}
                       type="button"
+                      onPointerDown={(e) => e.preventDefault()}
                       onClick={() => {
                         setSelectedColor(c.id);
                         setIsColorPickerOpen(false);
